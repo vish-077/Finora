@@ -1,0 +1,72 @@
+# ── Dart / Flutter ────────────────────────────────────────────────────────────
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+*.g.dart
+*.freezed.dart
+*.gr.dart
+
+# ── Environment & Secrets ─────────────────────────────────────────────────────
+.env
+.env.staging
+.env.production
+*.keystore
+*.jks
+key.properties
+android/key.properties
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+Thumbs.db
+
+# ── Android ──────────────────────────────────────────────────────────────────
+**/android/local.properties
+**/android/.gradle
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/gradle/wrapper/gradle-wrapper.jar
+**/android/key.properties
+android/app/google-services.json
+
+# ── iOS ──────────────────────────────────────────────────────────────────────
+**/ios/.generated/
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/ephemeral/
+**/ios/Pods/
+**/ios/Runner.xcworkspace/
+**/ios/.symlinks/
+**/ios/GoogleService-Info.plist
+
+# ── Coverage & Test Artifacts ─────────────────────────────────────────────────
+coverage/
+*.lcov
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+finora-debug.log
+
+# ── Generated Assets ─────────────────────────────────────────────────────────
+assets/generated/
+
+# ── Hive ─────────────────────────────────────────────────────────────────────
+*.hive
+*.lock
+
+# ── Temp / OS ─────────────────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.swp
+*~.nib

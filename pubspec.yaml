@@ -1,0 +1,132 @@
+name: finora
+description: FINORA — AI-powered Smart Expense Tracker
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+  flutter: '>=3.44.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── State Management ────────────────────────────────────────────────────────
+  flutter_riverpod: ^2.5.1        # reactive state management
+  riverpod_annotation: ^2.3.5     # code-gen annotations
+
+  # ── Navigation ──────────────────────────────────────────────────────────────
+  go_router: ^13.2.0              # declarative routing with deep links
+
+  # ── Dependency Injection ─────────────────────────────────────────────────────
+  get_it: ^7.7.0                  # service locator for infrastructure singletons
+  injectable: ^2.4.1              # code-gen for GetIt registration
+
+  # ── Local Storage (Offline-first) ────────────────────────────────────────────
+  hive_flutter: ^1.1.0            # Hive adapter for Flutter (includes hive)
+  hive: ^2.2.3                    # key-value store (encrypted boxes)
+  flutter_secure_storage: ^9.0.0  # Android Keystore-backed secure storage
+
+  # ── Cloud / Backend ──────────────────────────────────────────────────────────
+  supabase_flutter: ^2.3.4        # Supabase SDK (PostgreSQL, Realtime)
+
+  # ── Authentication ───────────────────────────────────────────────────────────
+  local_auth: ^2.2.0              # Android BiometricPrompt API
+  bcrypt: ^1.1.3                  # PIN hashing (salt rounds = 12)
+
+  # ── Functional Programming / Error Handling ──────────────────────────────────
+  fpdart: ^1.1.0                  # Either<Failure,T>, Option, TaskEither
+
+  # ── Networking ───────────────────────────────────────────────────────────────
+  dio: ^5.4.3                     # HTTP client for AI API calls (user's own key)
+  connectivity_plus: ^6.0.3       # network status detection
+
+  # ── OCR / ML (on-device, free) ───────────────────────────────────────────────
+  google_mlkit_text_recognition: ^0.13.0  # receipt OCR — Latin script
+  camera: ^0.11.0                          # camera access for receipt scanning
+  image_picker: ^1.1.2                     # gallery picker fallback
+  image: ^4.1.7                            # image preprocessing
+
+  # ── PDF Generation ───────────────────────────────────────────────────────────
+  pdf: ^3.11.0                    # pure-Dart PDF rendering
+  printing: ^5.13.0               # system print dialog + share sheet
+
+  # ── Charts / Visualization ───────────────────────────────────────────────────
+  fl_chart: ^0.68.0               # line, bar, pie charts for reports
+  percent_indicator: ^4.2.3       # budget/goal progress rings
+
+  # ── Date & Time ──────────────────────────────────────────────────────────────
+  intl: ^0.19.0                   # date formatting, number formatting
+  table_calendar: ^3.1.2          # calendar view for transaction history
+
+  # ── UI / Material Design ─────────────────────────────────────────────────────
+  flutter_animate: ^4.5.0         # declarative animation library
+  lottie: ^3.1.2                  # Lottie JSON animations (Rive alternative)
+  shimmer: ^3.0.0                 # skeleton loading placeholders
+  cached_network_image: ^3.3.1    # cached profile/asset images
+  image_cropper: ^7.1.0           # receipt image crop before OCR
+
+  # ── Utilities ────────────────────────────────────────────────────────────────
+  uuid: ^4.4.0                    # RFC-4122 UUID generation
+  crypto: ^3.0.3                  # SHA-256 hashing utilities
+  equatable: ^2.0.5               # value equality without boilerplate
+  collection: ^1.18.0             # iterable utilities (groupBy, etc.)
+  path_provider: ^2.1.3           # app directories (documents, cache)
+  permission_handler: ^11.3.1     # runtime permissions (camera, storage)
+  share_plus: ^9.0.0              # native share sheet (PDF export)
+  url_launcher: ^6.3.0            # external links
+  package_info_plus: ^8.1.1       # app version info
+  device_info_plus: ^10.1.2       # device information
+
+  # ── Logging ──────────────────────────────────────────────────────────────────
+  logger: ^2.4.0                  # structured log levels with pretty output
+  talker_flutter: ^4.4.0          # in-app log viewer overlay (debug builds only)
+
+  # ── Environment Configuration ─────────────────────────────────────────────────
+  flutter_dotenv: ^5.1.0          # .env file loading
+  flutter_local_notifications: ^18.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+  # ── Code Generation ───────────────────────────────────────────────────────────
+  build_runner: ^2.4.9
+  riverpod_generator: ^2.4.0      # generates providers from annotations
+  injectable_generator: ^2.4.1    # generates GetIt registration
+  # hive_generator — add per-feature when TypeAdapters are needed (analyzer conflict with riverpod_generator)
+  json_serializable: ^6.8.0       # JSON serialization
+
+  # ── Testing ───────────────────────────────────────────────────────────────────
+  mocktail: ^1.0.4                # null-safe mocking
+
+  # ── Launcher Icons ────────────────────────────────────────────────────────────
+  flutter_launcher_icons: ^0.14.3
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - .env
+    - assets/images/
+    # - assets/icons/
+    # - assets/lottie/
+
+  # fonts: — uncomment after adding font files to assets/fonts/
+  #   - family: DM Sans
+  #     fonts:
+  #       - asset: assets/fonts/DMSans-Regular.ttf
+  #         weight: 400
+  #       - asset: assets/fonts/DMSans-Medium.ttf
+  #         weight: 500
+  #       - asset: assets/fonts/DMSans-SemiBold.ttf
+  #         weight: 600
+  #       - asset: assets/fonts/DMSans-Bold.ttf
+  #         weight: 700
+  #   - family: DM Mono
+  #     fonts:
+  #       - asset: assets/fonts/DMMono-Regular.ttf
+  #         weight: 400
+  #       - asset: assets/fonts/DMMono-Medium.ttf
+  #         weight: 500

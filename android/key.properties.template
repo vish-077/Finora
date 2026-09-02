@@ -1,0 +1,9 @@
+# FINORA Android Signing Configuration
+# Copy this file to key.properties (gitignored) and fill in real values.
+# Generate a keystore with:
+#   keytool -genkey -v -keystore finora-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias finora
+
+storePassword=YOUR_KEYSTORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=finora
+storeFile=../finora-release.jks
