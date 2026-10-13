@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show Session;
 import 'package:finora/core/error/exceptions.dart';
 import 'package:finora/core/error/failures.dart';
 import 'package:finora/core/network/network_info.dart';
@@ -15,8 +14,6 @@ class MockRemote extends Mock implements AuthRemoteSource {}
 class MockLocal extends Mock implements AuthLocalSource {}
 
 class MockNetwork extends Mock implements NetworkInfo {}
-
-class MockSession extends Mock implements Session {}
 
 void main() {
   late MockRemote remote;
@@ -58,10 +55,7 @@ void main() {
 
   group('signIn', () {
     test('returns AuthSession and persists on success', () async {
-      final session = MockSession();
-      when(() => session.accessToken).thenReturn('access');
-      when(() => session.refreshToken).thenReturn('refresh');
-      when(() => session.expiresAt).thenReturn(null);
+      const session = RemoteSession(accessToken: 'access', refreshToken: 'refresh');
       when(() => remote.signIn(
                 email: any(named: 'email'),
                 password: any(named: 'password'),

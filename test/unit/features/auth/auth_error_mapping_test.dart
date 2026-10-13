@@ -5,13 +5,13 @@ import 'package:finora/features/auth/data/repositories/auth_repository_impl.dart
 
 void main() {
   group('auth network error mapping', () {
-    // Regression: a dead/unreachable Supabase host surfaced the raw
+    // Regression: a dead/unreachable backend host surfaced the raw
     // "ClientException with SocketException: Failed host lookup ..." string
     // straight into a red box on the register screen.
     test('DNS failure maps to an actionable message, not the raw exception', () {
       final failure = mapAuthTransportErrorForTest(
         'ClientException with SocketException: Failed host lookup: '
-        "'obuoiftuwcaniqljkcva.supabase.co' (OS Error: No address associated "
+        "'backend.example.com' (OS Error: No address associated "
         'with hostname, errno = 7)',
         null,
       );

@@ -1,6 +1,7 @@
 import 'dart:convert';
-import 'package:hive/hive.dart';
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/storage/app_database.dart';
+import 'package:finora/core/storage/sql_box.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/core/security/secure_key_service.dart';
 import 'package:finora/features/auth/data/models/auth_user_model.dart';
 
@@ -30,7 +31,7 @@ abstract interface class AuthLocalSource {
 class AuthLocalSourceImpl implements AuthLocalSource {
   AuthLocalSourceImpl(this._userBox);
 
-  final Box<dynamic> _userBox;
+  final SqlBox _userBox;
   static const String _cachedUserKey = 'cached_auth_user';
 
   @override
@@ -120,9 +121,9 @@ class AuthLocalSourceImpl implements AuthLocalSource {
     await Future.wait([
       // aiHistory is also left alone: threads are keyed by user id and must
       // survive sign-out. Clearing them is done from the AI Box itself.
-      Hive.box<dynamic>(HiveBoxes.notifications).clear(),
-      Hive.box<dynamic>(HiveBoxes.receipts).clear(),
-      Hive.box<dynamic>(HiveBoxes.reports).clear(),
+      AppDatabase.box(StorageBoxes.notifications).clear(),
+      AppDatabase.box(StorageBoxes.receipts).clear(),
+      AppDatabase.box(StorageBoxes.reports).clear(),
     ]);
   }
 }

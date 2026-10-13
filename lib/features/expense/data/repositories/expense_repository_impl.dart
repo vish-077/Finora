@@ -39,7 +39,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
       await _sync.prepareRead();
       return right(applyFilter(_local.readAll(), filter));
     } catch (e) {
-      return left(HiveReadFailure('Failed to read expenses: $e'));
+      return left(StorageReadFailure('Failed to read expenses: $e'));
     }
   }
 
@@ -82,7 +82,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
       final stored = await _sync.save(SyncTables.expenses, model.toCache());
       return right(ExpenseModel.fromMap(stored));
     } catch (e) {
-      return left(HiveWriteFailure('Failed to $verb expense: $e'));
+      return left(StorageWriteFailure('Failed to $verb expense: $e'));
     }
   }
 
@@ -92,7 +92,7 @@ class ExpenseRepositoryImpl implements ExpenseRepository {
       await _sync.remove(SyncTables.expenses, id);
       return right(unit);
     } catch (e) {
-      return left(HiveWriteFailure('Failed to delete expense: $e'));
+      return left(StorageWriteFailure('Failed to delete expense: $e'));
     }
   }
 

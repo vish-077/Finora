@@ -1,12 +1,13 @@
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
+import 'package:finora/core/storage/sql_box.dart';
 import 'package:finora/features/receipt_scanner/domain/entities/receipt.dart';
 import 'package:finora/features/receipt_scanner/domain/repositories/receipt_repository.dart';
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 
 class ReceiptRepositoryImpl implements ReceiptRepository {
   ReceiptRepositoryImpl();
 
-  Box<dynamic> get _box => Hive.box<dynamic>(HiveBoxes.receipts);
+  SqlBox get _box => AppDatabase.box(StorageBoxes.receipts);
 
   @override
   Future<List<Receipt>> getReceipts() async {

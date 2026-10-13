@@ -23,7 +23,7 @@ class AccountRepositoryImpl implements AccountRepository {
         _currentUserId = currentUserId,
         _uuid = uuid ?? const Uuid();
 
-  /// Sentinel used by DI when there is no Supabase session.
+  /// Sentinel used by DI when there is no Firebase session.
   static const String _anonymousUser = 'local-user';
 
   final AccountLocalSource _local;
@@ -42,7 +42,7 @@ class AccountRepositoryImpl implements AccountRepository {
 
       return right(list);
     } catch (e) {
-      return left(HiveReadFailure('Failed to read accounts: $e'));
+      return left(StorageReadFailure('Failed to read accounts: $e'));
     }
   }
 
@@ -91,7 +91,7 @@ class AccountRepositoryImpl implements AccountRepository {
       final stored = await _sync.save(SyncTables.accounts, model.toCache());
       return right(AccountModel.fromMap(stored));
     } catch (e) {
-      return left(HiveWriteFailure('Failed to $verb account: $e'));
+      return left(StorageWriteFailure('Failed to $verb account: $e'));
     }
   }
 
@@ -101,7 +101,7 @@ class AccountRepositoryImpl implements AccountRepository {
       await _sync.remove(SyncTables.accounts, id);
       return right(unit);
     } catch (e) {
-      return left(HiveWriteFailure('Failed to delete account: $e'));
+      return left(StorageWriteFailure('Failed to delete account: $e'));
     }
   }
 

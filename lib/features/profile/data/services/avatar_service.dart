@@ -1,11 +1,12 @@
 import 'dart:io';
 
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
+import 'package:finora/core/storage/sql_box.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/core/logging/log_service.dart';
 
 /// Raised when a chosen picture cannot be used as an avatar.
@@ -48,9 +49,9 @@ class AvatarService {
 
   /// Null when the settings box is not open — the avatar is read by shared
   /// chrome that can be built without Hive (widget tests, error fallbacks).
-  Box<dynamic>? get _box {
+  SqlBox? get _box {
     try {
-      return Hive.box<dynamic>(HiveBoxes.settings);
+      return AppDatabase.box(StorageBoxes.settings);
     } catch (_) {
       return null;
     }

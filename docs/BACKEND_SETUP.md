@@ -1,117 +1,103 @@
-# Backend setup (required for cross-device sync)
+# Backend setup (SQLite + Firebase)
 
-Finora is local-first: it works offline, and a background sync engine mirrors
-your data to Supabase so the same account shows the same figures on every
-device. **If the server has no tables, data never leaves the device** — which is
-why an account looks empty on a second device or after switching accounts.
+Finora is local-first:
 
-## Current status of this project
+* **SQLite** (`sqflite`, file `finora.db`) is the on-device source of truth. The
+  app reads and writes only to it, so everything works offline.
+* **Firebase Authentication** (email/password) handles sign-in.
+* **Cloud Firestore** holds each account's copy of the data. A background sync
+  engine (`lib/core/sync/`) pushes queued local writes and pulls changes made on
+  other devices, so the same account shows the same figures everywhere.
 
-Checked against `https://obuoiftuwcaniqljkcva.supabase.co`:
+**Until Firebase is configured the app still runs, fully offline** (as a guest);
+sign-in and cloud sync stay disabled and the log shows
+`Firebase not configured — cloud sync disabled`.
 
-| Check | Result |
-| --- | --- |
-| Host resolves | ✅ yes (`104.18.38.10`) |
-| Auth API reachable | ✅ yes (`/auth/v1/health` responds) |
-| `expenses` table | ❌ **missing** (`PGRST205`) |
-| `categories` table | ❌ **missing** |
-| `budgets` table | ❌ **missing** |
-| `accounts` table | ❌ **missing** |
+## How the pieces fit
 
-**The project is alive but has no schema.** Step 2 is the blocker for
-cross-device sync — until the migrations run, every push fails with
-"Could not find the table", so nothing can ever reach the server and a second
-device has nothing to pull.
-
-Re-run these checks any time:
-
-```bash
-curl -s -o /dev/null -w "%{http_code}\n" "$SUPABASE_URL/rest/v1/expenses?select=id&limit=1" -H "apikey: $SUPABASE_ANON_KEY"
+```
+UI → repositories → SQLite boxes (AppDatabase / SqlBox)
+                         │  every write is also queued in the outbox
+                         ▼
+                    SyncEngine ⇄ Firestore  users/{uid}/{categories|accounts|budgets|expenses}/{id}
 ```
 
-`404` = table missing (run the migrations). `200` or `401` = table exists.
+* `lib/core/storage/` — `AppDatabase` opens one SQLite database; `SqlBox` is a
+  named key/value collection inside it (table `kv_store`: `box`, `key`, `value`).
+  Reads are served from memory, every write is persisted to SQLite first.
+* `lib/core/sync/` — outbox queue, per-table cursors, account scoping, and the
+  Firestore push/pull engine. `updated_at` is stamped by the Firestore server, so
+  device clock skew can't hide changes. Deletes are tombstones (`deleted_at`).
+* Guest data never leaves the device; each account's local data is stashed and
+  restored on sign-out / sign-in (`SyncScopeStore`).
 
----
+## 1. Create the Firebase project
 
-## 1. Project credentials
+1. <https://console.firebase.google.com> → **Add project**.
+2. **Add app → Android**. Package name: `com.finora.app`.
+   Debug builds use the suffix `.debug`, so also **add a second Android app**
+   with package `com.finora.app.debug` (or add it to the same project and
+   download the JSON again) — `google-services.json` must contain both clients.
+3. Download **`google-services.json`** and place it at
+   `android/app/google-services.json`. (It is gitignored.)
+4. **Build → Authentication → Sign-in method → Email/Password → Enable.**
+   Without this the app reports "Email/password sign-in is not enabled".
+5. **Build → Firestore Database → Create database** (production mode, pick a
+   region).
+6. Publish the security rules in [`firestore.rules`](../firestore.rules) — paste
+   them under *Firestore → Rules*, or with the CLI:
 
-Already configured in `.env` for this project. For a new one: **Project
-Settings → API** → copy **Project URL** → `SUPABASE_URL` and the
-**anon / public key** → `SUPABASE_ANON_KEY`.
+   ```bash
+   npm i -g firebase-tools
+   firebase login
+   firebase use <your-project-id>
+   firebase deploy --only firestore:rules
+   ```
 
-The anon key is safe to ship — row-level security is what protects the data.
-Never put the **service_role** key in the app. Fully restart after editing
-`.env`; it is read once at startup, so hot reload is not enough.
+   The rules let a signed-in user touch only `users/{their-uid}/**`.
 
-## 2. Apply the database schema — REQUIRED, currently missing
+7. For release builds, add your release keystore's **SHA-1/SHA-256** under
+   *Project settings → Your apps* (needed by some Firebase features; email/password
+   works without it).
 
-The migrations in `supabase/migrations/` create the tables, row-level security
-policies and sync triggers the app expects.
+The Gradle build applies the `google-services` plugin only when
+`android/app/google-services.json` exists, so a fresh clone still builds.
 
-With the Supabase CLI:
+## 2. Run
 
 ```bash
-supabase link --project-ref <your-ref>
-supabase db push
+flutter pub get
+flutter run
 ```
 
-Or paste each file, in numeric order, into the dashboard SQL editor:
+Sign up in the app, add an expense, then sign in on a second device (or
+reinstall) — the data appears after the first sync round. Watch the sync chip
+and the log lines prefixed `SyncEngine:`.
 
-1. `0001_expense_module.sql`
-2. `0002_accounts_module.sql`
-3. `0003_sync_layer.sql`
+## Data model in Firestore
 
-Sync will fail with "relation does not exist" until this is done.
+Each document keeps the same JSON shape as the local rows, plus:
 
-## 3. Email (Gmail) auth — Supabase only, no Google Cloud
+| Field        | Meaning                                              |
+| ------------ | ---------------------------------------------------- |
+| `id`         | Row id (also the document id)                        |
+| `user_id`    | Owner uid (pinned by the engine before every push)   |
+| `updated_at` | Firestore server timestamp — drives the pull cursor  |
+| `deleted_at` | Set when the row was deleted (tombstone), else absent |
 
-Auth uses Supabase email/password with a strict `@gmail.com` policy. There is
-no Google OAuth and no Google Cloud project involved.
+The pull query is a single-field `orderBy('updated_at')`, so no composite index
+is needed.
 
-**Registration sends a confirmation email, and the account cannot be signed
-into until that link is opened.** This is the single most common cause of
-"invalid email or password" on a correct password: the account exists but is
-unconfirmed, and Supabase deliberately returns the same generic error for both
-cases so addresses cannot be enumerated.
+## Password reset / email verification
 
-Supabase's built-in SMTP sends only **2-3 emails per hour**. While testing you
-have two options:
+* **Forgot password** sends Firebase's reset email; the new password is chosen
+  on Firebase's hosted page (not inside the app).
+* **Sign-up** sends a verification email; the verification screen's "I've
+  verified" button reloads the user and re-checks.
+* Changing the password of the signed-in user may require a recent sign-in
+  (`requires-recent-login`).
 
-- **Keep confirmation on** (production-like): register, open the link in the
-  inbox, then sign in. Watch the hourly limit.
-- **Turn confirmation off** (fastest for testing): **Authentication → Sign In /
-  Providers → Email** → disable **Confirm email**. New accounts are then usable
-  immediately. Existing unconfirmed users can be confirmed by hand in
-  **Authentication → Users**.
+## Existing data from the Hive/Supabase version
 
-For real volume, attach your own SMTP provider under **Project Settings → Auth →
-SMTP Settings** to lift the limit.
-
-Guest / test mode is unaffected — it is deliberately local-only and never syncs.
-
----
-
-## 4. Verify it works
-
-1. Sign in on device A, add an expense.
-2. Confirm the sync chip in the top bar settles (not "pending").
-3. Check **Table Editor → expenses** in the dashboard — the row should be
-   there with your `user_id`.
-4. Sign in as the same account on device B. The expense should appear after the
-   first sync.
-
-If step 3 shows nothing, the data is still local-only: check the app logs for
-push failures, confirm the migrations ran, and confirm RLS policies exist.
-
-## Recovering data that appears "lost"
-
-Rows written while the backend was unreachable live in the local outbox
-(`finora_sync_queue`) and the local mirror boxes. As of the sign-out retention fix,
-**sign-out no longer deletes either** — they upload the next time that account
-signs in on that device.
-
-The caveat: data lost *before* that fix, on a build that cleared those boxes on
-sign-out, is not recoverable. It was never on the server and the local copy was
-erased. Only data still on the device can be rescued, so point that device at a
-working backend and sign in with the same account before reinstalling or
-clearing app storage.
+The previous build stored data in Hive boxes and Supabase. Those are no longer
+read: this version starts with an empty SQLite database and an empty Firestore.

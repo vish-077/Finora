@@ -15,12 +15,12 @@ final class LocalFailure extends Failure {
   const LocalFailure(super.message, {super.code});
 }
 
-final class HiveReadFailure extends LocalFailure {
-  const HiveReadFailure(super.message) : super(code: 'HIVE_READ');
+final class StorageReadFailure extends LocalFailure {
+  const StorageReadFailure(super.message) : super(code: 'STORAGE_READ');
 }
 
-final class HiveWriteFailure extends LocalFailure {
-  const HiveWriteFailure(super.message) : super(code: 'HIVE_WRITE');
+final class StorageWriteFailure extends LocalFailure {
+  const StorageWriteFailure(super.message) : super(code: 'STORAGE_WRITE');
 }
 
 // ── Network Failures ──────────────────────────────────────────────────────
@@ -51,13 +51,12 @@ final class AuthFailure extends Failure {
 }
 
 final class InvalidCredentialsFailure extends AuthFailure {
-  /// Supabase returns this for an unconfirmed account as well as a wrong
-  /// password (it avoids revealing which addresses exist), so the message names
-  /// both possibilities instead of insisting the password is wrong.
+  /// Firebase reports a wrong password and an unknown address the same way
+  /// (it avoids revealing which addresses exist), so the message doesn't claim
+  /// to know which one it was.
   const InvalidCredentialsFailure()
       : super(
-          'Email or password is incorrect. If you have just registered, '
-          'confirm your email first — the account stays locked until you do.',
+          'Email or password is incorrect.',
           code: 'INVALID_CREDENTIALS',
         );
 }

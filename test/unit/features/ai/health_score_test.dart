@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
+import 'package:finora/core/storage/sql_box.dart';
 
 import 'package:finora/features/ai/data/repositories/local_insight_repository.dart';
 import 'package:finora/features/ai/domain/entities/ai_entities.dart';
@@ -11,18 +12,18 @@ const _userId = 'u1';
 
 void main() {
   late Directory tempDir;
-  late Box<dynamic> txBox;
-  late Box<dynamic> budgetBox;
+  late SqlBox txBox;
+  late SqlBox budgetBox;
   late LocalInsightRepositoryImpl repo;
 
   setUpAll(() {
     tempDir = Directory.systemTemp.createTempSync('finora_health_test');
-    Hive.init(tempDir.path);
+    AppDatabase.initInMemory();
   });
 
   setUp(() async {
-    txBox = await Hive.openBox<dynamic>('health_tx');
-    budgetBox = await Hive.openBox<dynamic>('health_budget');
+    txBox = await AppDatabase.openBox('health_tx');
+    budgetBox = await AppDatabase.openBox('health_budget');
     await txBox.clear();
     await budgetBox.clear();
     repo = LocalInsightRepositoryImpl(
@@ -32,7 +33,7 @@ void main() {
   });
 
   tearDownAll(() async {
-    await Hive.close();
+    await AppDatabase.close();
     try {
       tempDir.deleteSync(recursive: true);
     } catch (_) {}

@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/sql_box.dart';
 
 import 'package:finora/core/config/app_config.dart';
 import 'package:finora/core/logging/log_service.dart';
@@ -14,7 +14,7 @@ import 'package:finora/core/sync/sync_tables.dart';
 class SyncQueue {
   SyncQueue(this._box);
 
-  final Box<dynamic> _box;
+  final SqlBox _box;
 
   Future<void> enqueueUpsert(SyncTable table, Map<String, dynamic> row) async {
     final id = row['id'] as String?;

@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
 
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/core/sync/legacy_id_migration.dart';
 import 'package:finora/core/sync/pending_op.dart';
 import 'package:finora/core/sync/stable_id.dart';
@@ -18,16 +18,16 @@ void main() {
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('finora_sync_test');
-    Hive.init(tempDir.path);
+    AppDatabase.initInMemory();
     for (final table in SyncTables.all) {
-      await Hive.openBox<dynamic>(table.box);
+      await AppDatabase.openBox(table.box);
     }
-    await Hive.openBox<dynamic>(HiveBoxes.syncQueue);
-    await Hive.openBox<dynamic>(HiveBoxes.settings);
+    await AppDatabase.openBox(StorageBoxes.syncQueue);
+    await AppDatabase.openBox(StorageBoxes.settings);
   });
 
   tearDown(() async {
-    await Hive.deleteFromDisk();
+    await AppDatabase.deleteFromDisk();
     await tempDir.delete(recursive: true);
   });
 
@@ -43,7 +43,7 @@ void main() {
   group('SyncQueue', () {
     late SyncQueue queue;
 
-    setUp(() => queue = SyncQueue(Hive.box<dynamic>(HiveBoxes.syncQueue)));
+    setUp(() => queue = SyncQueue(AppDatabase.box(StorageBoxes.syncQueue)));
 
     test('collapses repeated edits to one op per row', () async {
       await queue.enqueueUpsert(SyncTables.expenses, expenseRow('e1'));
@@ -107,7 +107,7 @@ void main() {
   group('SyncCursorStore', () {
     late SyncCursorStore cursors;
 
-    setUp(() => cursors = SyncCursorStore(Hive.box<dynamic>(HiveBoxes.settings)));
+    setUp(() => cursors = SyncCursorStore(AppDatabase.box(StorageBoxes.settings)));
 
     test('cursors are per user and per table', () async {
       final stamp = DateTime.utc(2026, 8, 1, 12);
@@ -150,9 +150,9 @@ void main() {
 
     setUp(() {
       store = SyncLocalStore();
-      queue = SyncQueue(Hive.box<dynamic>(HiveBoxes.syncQueue));
+      queue = SyncQueue(AppDatabase.box(StorageBoxes.syncQueue));
       migration = LegacyIdMigration(
-        settingsBox: Hive.box<dynamic>(HiveBoxes.settings),
+        settingsBox: AppDatabase.box(StorageBoxes.settings),
         store: store,
         queue: queue,
       );
@@ -213,7 +213,7 @@ void main() {
   group('SyncLocalStore', () {
     test('reads rows written as JSON strings by the feature local sources', () {
       final store = SyncLocalStore();
-      Hive.box<dynamic>(SyncTables.expenses.box)
+      AppDatabase.box(SyncTables.expenses.box)
           .put('e1', jsonEncode(expenseRow('e1')));
 
       expect(store.readAll(SyncTables.expenses), hasLength(1));

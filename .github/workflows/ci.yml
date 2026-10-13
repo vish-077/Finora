@@ -65,8 +65,6 @@ jobs:
       - name: Create .env for CI
         run: |
           cp .env .env.ci
-          echo "SUPABASE_URL=${{ secrets.CI_SUPABASE_URL }}" >> .env.ci
-          echo "SUPABASE_ANON_KEY=${{ secrets.CI_SUPABASE_ANON_KEY }}" >> .env.ci
           cp .env.ci .env
 
       - name: Run tests with coverage
@@ -158,8 +156,6 @@ jobs:
         run: |
           cat > .env << EOF
           APP_ENV=production
-          SUPABASE_URL=${{ secrets.PROD_SUPABASE_URL }}
-          SUPABASE_ANON_KEY=${{ secrets.PROD_SUPABASE_ANON_KEY }}
           LOG_LEVEL=warning
           ENABLE_TALKER_OVERLAY=false
           FEATURE_AI_BOX=true

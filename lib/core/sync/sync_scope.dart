@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/sql_box.dart';
 
 import 'package:finora/core/logging/log_service.dart';
 import 'package:finora/core/sync/pending_op.dart';
@@ -13,13 +13,13 @@ class SyncScope {
   SyncScope._();
 
   /// Guest mode. Deliberately not a UUID, so it can never collide with a
-  /// Supabase `auth.uid()` and can never be pushed as a `user_id`.
+  /// Firebase `uid` and can never be pushed as a `user_id`.
   static const String guest = 'local-user';
 
   static bool isGuest(String? owner) => owner == null || owner == guest;
 }
 
-/// Makes the mirrored Hive boxes belong to exactly one owner at a time.
+/// Makes the mirrored SQLite boxes belong to exactly one owner at a time.
 ///
 /// The boxes are opened once at startup and injected all over the app, so
 /// swapping box *instances* per account isn't practical here. Instead this
@@ -34,14 +34,14 @@ class SyncScope {
 ///     and go up the next time that account signs in on this device.
 class SyncScopeStore {
   SyncScopeStore({
-    required Box<dynamic> box,
+    required SqlBox box,
     required SyncLocalStore store,
     required SyncQueue queue,
   })  : _box = box,
         _store = store,
         _queue = queue;
 
-  final Box<dynamic> _box;
+  final SqlBox _box;
   final SyncLocalStore _store;
   final SyncQueue _queue;
 
@@ -69,8 +69,8 @@ class SyncScopeStore {
 
   /// Makes [owner] the active owner. Returns true if a swap actually happened.
   ///
-  /// Serialized: sign-in can be requested twice at once (Supabase replays an
-  /// `initialSession` event just as startup calls `handleSignIn`), and two
+  /// Serialized: sign-in can be requested twice at once (Firebase replays the
+  /// current user on subscribe just as startup calls `handleSignIn`), and two
   /// interleaved swaps would stash a half-cleared box.
   Future<bool> switchTo(String owner, {bool force = false}) {
     final next = _lock.then((_) => _switchTo(owner, force: force));

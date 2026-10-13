@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
 
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/features/ai/data/sources/chat_history_source.dart';
 import 'package:finora/features/ai/domain/entities/chat_entities.dart';
 
@@ -37,14 +37,14 @@ void main() {
   late ChatHistorySource source;
 
   setUpAll(() {
-    Hive.init('${Directory.systemTemp.path}/finora_chat_test');
+    AppDatabase.initInMemory();
   });
 
   setUp(() async {
-    if (!Hive.isBoxOpen(HiveBoxes.aiHistory)) {
-      await Hive.openBox<dynamic>(HiveBoxes.aiHistory);
+    if (!AppDatabase.isBoxOpen(StorageBoxes.aiHistory)) {
+      await AppDatabase.openBox(StorageBoxes.aiHistory);
     }
-    await Hive.box<dynamic>(HiveBoxes.aiHistory).clear();
+    await AppDatabase.box(StorageBoxes.aiHistory).clear();
     source = ChatHistorySource();
   });
 
@@ -107,19 +107,19 @@ void main() {
       // Sign-out clears the data boxes but must leave aiHistory alone, so the
       // user's conversations are still there when they sign back in.
       for (final name in [
-        HiveBoxes.transactions,
-        HiveBoxes.categories,
-        HiveBoxes.budgets,
+        StorageBoxes.transactions,
+        StorageBoxes.categories,
+        StorageBoxes.budgets,
       ]) {
-        if (!Hive.isBoxOpen(name)) await Hive.openBox<dynamic>(name);
-        await Hive.box<dynamic>(name).clear();
+        if (!AppDatabase.isBoxOpen(name)) await AppDatabase.openBox(name);
+        await AppDatabase.box(name).clear();
       }
 
       expect(source.conversationsFor('u1'), hasLength(1));
     });
 
     test('skips unreadable entries instead of throwing', () async {
-      await Hive.box<dynamic>(HiveBoxes.aiHistory).put('chat_bad', 'not-a-map');
+      await AppDatabase.box(StorageBoxes.aiHistory).put('chat_bad', 'not-a-map');
       await source.save(_convo(id: 'good', userId: 'u1'));
 
       expect(source.conversationsFor('u1').map((c) => c.id), ['good']);

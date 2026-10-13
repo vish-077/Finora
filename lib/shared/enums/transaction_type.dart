@@ -61,7 +61,7 @@ enum PaymentMethod {
         PaymentMethod.bankTransfer => 'Bank Transfer',
       };
 
-  /// Stable string stored in Supabase / Hive.
+  /// Stable string stored in Firestore / SQLite.
   String get wire => name;
 
   static PaymentMethod fromWire(String? value) => PaymentMethod.values

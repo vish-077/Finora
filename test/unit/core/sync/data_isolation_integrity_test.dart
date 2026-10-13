@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
 
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/core/sync/sync_engine.dart';
 import 'package:finora/core/sync/sync_local_store.dart';
 import 'package:finora/core/sync/sync_queue.dart';
@@ -71,17 +71,17 @@ void main() {
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('finora_isolation_test');
-    Hive.init(tempDir.path);
+    AppDatabase.initInMemory();
     for (final table in SyncTables.all) {
-      await Hive.openBox<dynamic>(table.box);
+      await AppDatabase.openBox(table.box);
     }
-    await Hive.openBox<dynamic>(HiveBoxes.syncQueue);
-    await Hive.openBox<dynamic>(HiveBoxes.syncScope);
+    await AppDatabase.openBox(StorageBoxes.syncQueue);
+    await AppDatabase.openBox(StorageBoxes.syncScope);
 
     store = SyncLocalStore();
-    queue = SyncQueue(Hive.box<dynamic>(HiveBoxes.syncQueue));
+    queue = SyncQueue(AppDatabase.box(StorageBoxes.syncQueue));
     scopes = SyncScopeStore(
-      box: Hive.box<dynamic>(HiveBoxes.syncScope),
+      box: AppDatabase.box(StorageBoxes.syncScope),
       store: store,
       queue: queue,
     );
@@ -89,10 +89,10 @@ void main() {
     engine = _FakeEngine(isGuest: false);
     syncWriter = SyncWriter(queue: queue, store: store, engine: engine);
 
-    expenseLocal = ExpenseLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.transactions));
-    categoryLocal = CategoryLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.categories));
-    budgetLocal = BudgetLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.budgets));
-    accountLocal = AccountLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.wallets));
+    expenseLocal = ExpenseLocalSourceImpl(AppDatabase.box(StorageBoxes.transactions));
+    categoryLocal = CategoryLocalSourceImpl(AppDatabase.box(StorageBoxes.categories));
+    budgetLocal = BudgetLocalSourceImpl(AppDatabase.box(StorageBoxes.budgets));
+    accountLocal = AccountLocalSourceImpl(AppDatabase.box(StorageBoxes.wallets));
 
     activeUserId = userA;
 
@@ -124,7 +124,7 @@ void main() {
   });
 
   tearDown(() async {
-    await Hive.deleteFromDisk();
+    await AppDatabase.deleteFromDisk();
     if (tempDir.existsSync()) await tempDir.delete(recursive: true);
   });
 

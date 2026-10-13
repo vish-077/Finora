@@ -83,3 +83,10 @@ dependencies {
     implementation("androidx.multidex:multidex:2.0.1")
     implementation("androidx.biometric:biometric:1.1.0")
 }
+
+// Firebase config. The plugin needs android/app/google-services.json (download
+// it from the Firebase console — see docs/BACKEND_SETUP.md). Without the file
+// the app still builds and runs fully offline; cloud sync is simply disabled.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}

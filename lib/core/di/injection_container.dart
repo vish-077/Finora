@@ -1,8 +1,10 @@
 import 'package:get_it/get_it.dart';
-import 'package:hive_flutter/hive_flutter.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:finora/core/config/app_config.dart';
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/storage/app_database.dart';
+import 'package:finora/core/storage/sql_box.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/core/logging/log_service.dart';
 import 'package:finora/core/network/network_info.dart';
 import 'package:finora/core/security/biometric_service.dart';
@@ -58,8 +60,8 @@ final GetIt sl = GetIt.instance;
 /// Initializes all infrastructure singletons.
 /// Call this once in main() before runApp().
 Future<void> initDependencies() async {
-  await _initHive();
-  await _initSupabase();
+  await _initStorage();
+  await _initFirebase();
   _initNetwork();
   _initSync();
   _initAuth();
@@ -76,26 +78,29 @@ Future<void> initDependencies() async {
 }
 
 void _initSync() {
-  final settingsBox = Hive.box<dynamic>(HiveBoxes.settings);
+  final settingsBox = AppDatabase.box(StorageBoxes.settings);
 
   sl
     ..registerLazySingleton<SyncLocalStore>(SyncLocalStore.new)
     ..registerLazySingleton<SyncQueue>(
-      () => SyncQueue(Hive.box<dynamic>(HiveBoxes.syncQueue)),
+      () => SyncQueue(AppDatabase.box(StorageBoxes.syncQueue)),
     )
     ..registerLazySingleton<SyncCursorStore>(
       () => SyncCursorStore(settingsBox),
     )
     ..registerLazySingleton<SyncScopeStore>(
       () => SyncScopeStore(
-        box: Hive.box<dynamic>(HiveBoxes.syncScope),
+        box: AppDatabase.box(StorageBoxes.syncScope),
         store: sl<SyncLocalStore>(),
         queue: sl<SyncQueue>(),
       ),
     )
     ..registerLazySingleton<SyncEngine>(
       () => SyncEngine(
-        client: sl.isRegistered<SupabaseClient>() ? sl<SupabaseClient>() : null,
+        auth: sl.isRegistered<FirebaseAuth>() ? sl<FirebaseAuth>() : null,
+        firestore: sl.isRegistered<FirebaseFirestore>()
+            ? sl<FirebaseFirestore>()
+            : null,
         queue: sl<SyncQueue>(),
         store: sl<SyncLocalStore>(),
         cursors: sl<SyncCursorStore>(),
@@ -119,65 +124,46 @@ void _initSync() {
     );
 }
 
-Future<void> _initHive() async {
-  await Hive.initFlutter();
+Future<void> _initStorage() async {
+  await AppDatabase.init();
+  await AppDatabase.openBoxes(StorageBoxes.all);
 
-  // Register TypeAdapters here when models are generated
-  // Hive.registerAdapter(UserProfileModelAdapter());
-  // Hive.registerAdapter(TransactionModelAdapter());
-  // ...
-
-  // Open all encrypted boxes
-  // final encryptionKey = await SecureKeyService.getOrCreateHiveKey();
-  // final cipher = HiveAesCipher(encryptionKey);
-
-  // For now open unencrypted boxes (encryption wired in after TypeAdapters)
-  await Future.wait([
-    Hive.openBox<dynamic>(HiveBoxes.userProfile),
-    Hive.openBox<dynamic>(HiveBoxes.transactions),
-    Hive.openBox<dynamic>(HiveBoxes.categories),
-    Hive.openBox<dynamic>(HiveBoxes.budgets),
-    Hive.openBox<dynamic>(HiveBoxes.wallets),
-    Hive.openBox<dynamic>(HiveBoxes.goals),
-    Hive.openBox<dynamic>(HiveBoxes.syncQueue),
-    Hive.openBox<dynamic>(HiveBoxes.syncScope),
-    Hive.openBox<dynamic>(HiveBoxes.aiHistory),
-    Hive.openBox<dynamic>(HiveBoxes.settings),
-    Hive.openBox<dynamic>(HiveBoxes.notifications),
-    Hive.openBox<dynamic>(HiveBoxes.receipts),
-    Hive.openBox<dynamic>(HiveBoxes.reports),
-  ]);
-
-  sl.registerSingleton<Box<dynamic>>(
-    Hive.box<dynamic>(HiveBoxes.transactions),
-    instanceName: HiveBoxes.transactions,
+  sl.registerSingleton<SqlBox>(
+    AppDatabase.box(StorageBoxes.transactions),
+    instanceName: StorageBoxes.transactions,
   );
-  sl.registerSingleton<Box<dynamic>>(
-    Hive.box<dynamic>(HiveBoxes.syncQueue),
-    instanceName: HiveBoxes.syncQueue,
+  sl.registerSingleton<SqlBox>(
+    AppDatabase.box(StorageBoxes.syncQueue),
+    instanceName: StorageBoxes.syncQueue,
   );
-  sl.registerSingleton<Box<dynamic>>(
-    Hive.box<dynamic>(HiveBoxes.settings),
-    instanceName: HiveBoxes.settings,
+  sl.registerSingleton<SqlBox>(
+    AppDatabase.box(StorageBoxes.settings),
+    instanceName: StorageBoxes.settings,
   );
 
-  LogService.d('Hive boxes initialized');
+  LogService.d('SQLite storage initialized');
 }
 
-Future<void> _initSupabase() async {
-  if (AppConfig.supabaseUrl.isEmpty || AppConfig.supabaseAnonKey.isEmpty) {
-    LogService.w('Supabase not configured — cloud sync disabled');
+/// Starts Firebase from the platform config file (`google-services.json` on
+/// Android). When it is missing the app keeps working fully offline — the sync
+/// engine and auth source see a null client and degrade cleanly.
+Future<void> _initFirebase() async {
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    LogService.w('Firebase not configured — cloud sync disabled ($e)');
     return;
   }
 
-  await Supabase.initialize(
-    url: AppConfig.supabaseUrl,
-    anonKey: AppConfig.supabaseAnonKey, // ignore: deprecated_member_use
-    debug: AppConfig.isDevelopment,
-  );
+  // The sync engine owns offline behaviour through its SQLite outbox; the
+  // Firestore SDK's own cache would only queue writes a second time.
+  FirebaseFirestore.instance.settings =
+      const Settings(persistenceEnabled: false);
 
-  sl.registerLazySingleton<SupabaseClient>(() => Supabase.instance.client);
-  LogService.d('Supabase client initialized');
+  sl
+    ..registerLazySingleton<FirebaseAuth>(() => FirebaseAuth.instance)
+    ..registerLazySingleton<FirebaseFirestore>(() => FirebaseFirestore.instance);
+  LogService.d('Firebase initialized');
 }
 
 void _initNetwork() {
@@ -189,10 +175,10 @@ void _initExpense() {
   // now goes through SyncEngine/SyncWriter.
   sl
     ..registerLazySingleton<ExpenseLocalSource>(
-      () => ExpenseLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.transactions)),
+      () => ExpenseLocalSourceImpl(AppDatabase.box(StorageBoxes.transactions)),
     )
     ..registerLazySingleton<CategoryLocalSource>(
-      () => CategoryLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.categories)),
+      () => CategoryLocalSourceImpl(AppDatabase.box(StorageBoxes.categories)),
     );
 
   // ── Repositories ─────────────────────────────────────────────────────────────
@@ -247,12 +233,12 @@ void _initAuth() {
   sl.registerLazySingleton<BiometricService>(() => BiometricServiceImpl());
 
   sl.registerLazySingleton<AuthLocalSource>(
-    () => AuthLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.userProfile)),
+    () => AuthLocalSourceImpl(AppDatabase.box(StorageBoxes.userProfile)),
   );
 
   sl.registerLazySingleton<AuthRemoteSource>(
     () => AuthRemoteSourceImpl(
-      sl.isRegistered<SupabaseClient>() ? sl<SupabaseClient>() : null,
+      sl.isRegistered<FirebaseAuth>() ? sl<FirebaseAuth>() : null,
     ),
   );
 
@@ -285,7 +271,7 @@ void _initAuth() {
 
 void _initBudget() {
   sl.registerLazySingleton<BudgetLocalSource>(
-    () => BudgetLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.budgets)),
+    () => BudgetLocalSourceImpl(AppDatabase.box(StorageBoxes.budgets)),
   );
 
   // Repository
@@ -307,7 +293,7 @@ void _initBudget() {
 
 void _initWallet() {
   sl.registerLazySingleton<AccountLocalSource>(
-    () => AccountLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.wallets)),
+    () => AccountLocalSourceImpl(AppDatabase.box(StorageBoxes.wallets)),
   );
 
   sl.registerLazySingleton<AccountRepository>(
@@ -332,8 +318,8 @@ void _initWallet() {
 void _initAi() {
   sl.registerLazySingleton<InsightRepository>(
     () => LocalInsightRepositoryImpl(
-      transactionBox: Hive.box<dynamic>(HiveBoxes.transactions),
-      budgetBox: Hive.box<dynamic>(HiveBoxes.budgets),
+      transactionBox: AppDatabase.box(StorageBoxes.transactions),
+      budgetBox: AppDatabase.box(StorageBoxes.budgets),
     ),
   );
 

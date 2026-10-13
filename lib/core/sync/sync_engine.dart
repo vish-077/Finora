@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:finora/core/logging/log_service.dart';
 import 'package:finora/core/network/network_info.dart';
@@ -24,20 +25,23 @@ import 'package:finora/core/sync/sync_tables.dart';
 /// from another device, a local write, and a slow periodic tick.
 class SyncEngine {
   SyncEngine({
-    required SupabaseClient? client,
+    required FirebaseAuth? auth,
+    required FirebaseFirestore? firestore,
     required SyncQueue queue,
     required SyncLocalStore store,
     required SyncCursorStore cursors,
     required SyncScopeStore scopes,
     required NetworkInfo network,
-  })  : _client = client,
+  })  : _auth = auth,
+        _firestore = firestore,
         _queue = queue,
         _store = store,
         _cursors = cursors,
         _scopes = scopes,
         _network = network;
 
-  final SupabaseClient? _client;
+  final FirebaseAuth? _auth;
+  final FirebaseFirestore? _firestore;
   final SyncQueue _queue;
   final SyncLocalStore _store;
   final SyncCursorStore _cursors;
@@ -46,6 +50,7 @@ class SyncEngine {
 
   static const Duration _debounce = Duration(milliseconds: 500);
   static const Duration _period = Duration(minutes: 2);
+  static const Duration _writeTimeout = Duration(seconds: 20);
   static const int _pageSize = 500;
 
   final StreamController<SyncStatus> _statusController =
@@ -56,16 +61,18 @@ class SyncEngine {
   bool _rerunRequested = false;
   Timer? _debounceTimer;
   Timer? _periodicTimer;
-  RealtimeChannel? _channel;
+  final List<StreamSubscription<Object?>> _listeners =
+      <StreamSubscription<Object?>>[];
   StreamSubscription<bool>? _connectivitySub;
-  StreamSubscription<AuthState>? _authSub;
+  StreamSubscription<User?>? _authSub;
   Completer<void>? _initialSync;
 
   SyncStatus get status => _status;
   Stream<SyncStatus> get statusStream => _statusController.stream;
 
-  String? get _uid => _client?.auth.currentUser?.id;
-  bool get _isCloudReady => _client != null && _uid != null;
+  String? get _uid => _auth?.currentUser?.uid;
+  bool get _isCloudReady =>
+      _auth != null && _firestore != null && _uid != null;
 
   /// True while the local boxes belong to guest mode rather than a signed-in
   /// account. Guest writes stay on the device: they must never be uploaded
@@ -86,14 +93,14 @@ class SyncEngine {
       await _scopes.adopt(_cursors.lastUserId ?? SyncScope.guest);
     }
 
-    if (_client == null) {
-      LogService.w('SyncEngine: Supabase not configured — running local-only');
+    if (_auth == null || _firestore == null) {
+      LogService.w('SyncEngine: Firebase not configured — running local-only');
       _emit(const SyncStatus(state: SyncState.signedOut));
       return;
     }
 
-    _authSub = _client.auth.onAuthStateChange.listen((event) async {
-      final userId = event.session?.user.id;
+    _authSub = _auth.authStateChanges().listen((user) async {
+      final userId = user?.uid;
       if (userId == null) {
         await enterGuestMode();
       } else {
@@ -111,7 +118,7 @@ class SyncEngine {
     if (userId != null) {
       await handleSignIn(userId);
     } else {
-      // No Supabase session: whatever is in the boxes must not be shown to
+      // No Firebase session: whatever is in the boxes must not be shown to
       // whoever uses the app next. Park them under their owner and hand the
       // device to guest. Also covers a crash midway through sign-out.
       await enterGuestMode();
@@ -144,7 +151,7 @@ class SyncEngine {
 
   /// Hands this device's copy of the account back to guest mode.
   ///
-  /// Call this *before* revoking the Supabase session: it flushes anything
+  /// Call this *before* revoking the Firebase session: it flushes anything
   /// still queued while the token is valid. Changes that can't be flushed stay
   /// in the outbox and go up the next time this account signs in here.
   Future<void> handleSignOut() async {
@@ -286,33 +293,42 @@ class SyncEngine {
         continue;
       }
       try {
+        final doc = _collection(userId, table).doc(op.rowId);
         switch (op.type) {
           case SyncOpType.upsert:
-            final payload = _sanitize(op.payload, userId);
+            final payload = _toDocument(op.payload, userId);
             if (payload == null) {
               await _queue.complete(op);
               continue;
             }
-            final row = await _client!
-                .from(table.remote)
-                .upsert(payload)
-                .select()
-                .maybeSingle();
-            if (row != null) {
-              // Adopt the server's timestamps so the next pull doesn't
-              // consider this row stale.
-              await _store.put(table, Map<String, dynamic>.from(row));
+            await doc.set(payload).timeout(_writeTimeout);
+            // Read the row back so the server-assigned `updated_at` is stored
+            // locally and the next pull doesn't consider this row stale.
+            final snap = await doc
+                .get(const GetOptions(source: Source.server))
+                .timeout(_writeTimeout);
+            final data = snap.data();
+            if (data != null) {
+              await _store.put(table, _fromDocument(snap.id, data));
             }
           case SyncOpType.delete:
-            await _client!
-                .from(table.remote)
-                .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
-                .eq('id', op.rowId)
-                .eq('user_id', userId);
+            // A tombstone rather than a hard delete, so other devices learn
+            // about the removal on their next pull.
+            await doc
+                .set(
+                  <String, dynamic>{
+                    'id': op.rowId,
+                    'user_id': userId,
+                    'deleted_at': FieldValue.serverTimestamp(),
+                    'updated_at': FieldValue.serverTimestamp(),
+                  },
+                  SetOptions(merge: true),
+                )
+                .timeout(_writeTimeout);
             await _store.delete(table, op.rowId);
         }
         await _queue.complete(op);
-      } on PostgrestException catch (e) {
+      } on FirebaseException catch (e) {
         LogService.w(
           'SyncEngine: push failed for ${op.key} — ${e.code}: ${e.message}',
         );
@@ -335,35 +351,40 @@ class SyncEngine {
       var cursor = _cursors.cursor(userId, table);
 
       while (true) {
-        var query =
-            _client!.from(table.remote).select().eq('user_id', userId);
+        Query<Map<String, dynamic>> query = _collection(userId, table);
         if (cursor != null) {
-          query = query.gt('updated_at', cursor.toUtc().toIso8601String());
+          // Firestore keeps nanoseconds, Dart only microseconds: step past the
+          // cursor so the newest row isn't fetched again on every round.
+          query = query.where(
+            'updated_at',
+            isGreaterThan: Timestamp.fromDate(
+              cursor.toUtc().add(const Duration(microseconds: 1)),
+            ),
+          );
         }
-        final rows = await query
-            .order('updated_at', ascending: true)
-            .limit(_pageSize);
-
-        if (rows.isEmpty) break;
+        final snapshot = await query
+            .orderBy('updated_at')
+            .limit(_pageSize)
+            .get(const GetOptions(source: Source.server));
+        final docs = snapshot.docs;
+        if (docs.isEmpty) break;
 
         DateTime? newest;
-        for (final raw in rows) {
-          final row = Map<String, dynamic>.from(raw);
-          final id = row['id'] as String?;
-          if (id == null) continue;
+        for (final doc in docs) {
+          final data = doc.data();
 
-          final updatedAt = DateTime.tryParse('${row['updated_at']}');
-          if (updatedAt != null &&
-              (newest == null || updatedAt.isAfter(newest))) {
-            newest = updatedAt;
+          final updatedAt = data['updated_at'];
+          if (updatedAt is Timestamp) {
+            final at = updatedAt.toDate().toUtc();
+            if (newest == null || at.isAfter(newest)) newest = at;
           }
 
-          if (protected.contains(id)) continue;
+          if (protected.contains(doc.id)) continue;
 
-          if (row['deleted_at'] != null) {
-            await _store.delete(table, id);
+          if (data['deleted_at'] != null) {
+            await _store.delete(table, doc.id);
           } else {
-            await _store.put(table, row);
+            await _store.put(table, _fromDocument(doc.id, data));
           }
         }
 
@@ -371,53 +392,86 @@ class SyncEngine {
           cursor = newest;
           await _cursors.setCursor(userId, table, newest);
         }
-        if (rows.length < _pageSize) break;
+        if (docs.length < _pageSize || newest == null) break;
       }
     }
   }
 
-  /// Strips keys Postgres must fill in itself and pins ownership to the
-  /// signed-in user so a queued row can never be pushed under the wrong id.
-  Map<String, dynamic>? _sanitize(Map<String, dynamic>? payload, String userId) {
+  CollectionReference<Map<String, dynamic>> _collection(
+    String userId,
+    SyncTable table,
+  ) =>
+      _firestore!
+          .collection(SyncTables.userRoot)
+          .doc(userId)
+          .collection(table.remote);
+
+  /// Builds the Firestore document for a queued row: pins ownership to the
+  /// signed-in user (so a queued row can never be pushed under the wrong id)
+  /// and lets the server stamp `updated_at`, keeping the pull cursor immune to
+  /// device clock skew.
+  Map<String, dynamic>? _toDocument(Map<String, dynamic>? payload, String userId) {
     if (payload == null) return null;
-    final row = Map<String, dynamic>.from(payload)
+    final doc = Map<String, dynamic>.from(payload)
       ..removeWhere((key, value) =>
           value == null &&
           (key == 'created_at' || key == 'updated_at' || key == 'deleted_at'));
-    row['user_id'] = userId;
+    doc['user_id'] = userId;
+    doc['updated_at'] = FieldValue.serverTimestamp();
+    return doc;
+  }
+
+  /// Turns a Firestore document into the JSON-shaped row the local store and
+  /// the feature models expect (timestamps become ISO-8601 strings).
+  Map<String, dynamic> _fromDocument(String id, Map<String, dynamic> data) {
+    final row = <String, dynamic>{
+      for (final entry in data.entries)
+        entry.key: entry.value is Timestamp
+            ? (entry.value as Timestamp).toDate().toUtc().toIso8601String()
+            : entry.value,
+    };
+    row['id'] = id;
     return row;
   }
 
   // ── Realtime ───────────────────────────────────────────────────────────────
 
+  /// Watches the newest document of each table. Any write from another device
+  /// bumps a document's `updated_at`, so it always lands at the top and wakes a
+  /// sync round — without streaming the whole collection to this device.
   void _subscribeRealtime(String userId) {
-    final client = _client;
-    if (client == null) return;
+    if (_firestore == null) return;
     unawaited(_unsubscribeRealtime());
 
-    final channel = client.channel('finora_sync_$userId');
     for (final table in SyncTables.all) {
-      channel.onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: table.remote,
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'user_id',
-          value: userId,
-        ),
-        callback: (_) => requestSync(reason: 'realtime:${table.remote}'),
+      var first = true;
+      final sub = _collection(userId, table)
+          .orderBy('updated_at', descending: true)
+          .limit(1)
+          .snapshots()
+          .listen(
+        (snapshot) {
+          // The first event is just the current state, and events carrying
+          // pending local writes are echoes of this device's own pushes.
+          if (first) {
+            first = false;
+            return;
+          }
+          if (snapshot.metadata.hasPendingWrites) return;
+          requestSync(reason: 'realtime:${table.remote}');
+        },
+        onError: (Object e) =>
+            LogService.w('SyncEngine: realtime ${table.remote} failed — $e'),
       );
+      _listeners.add(sub);
     }
-    channel.subscribe();
-    _channel = channel;
   }
 
   Future<void> _unsubscribeRealtime() async {
-    final channel = _channel;
-    _channel = null;
-    if (channel != null) {
-      await _client?.removeChannel(channel);
+    final subs = List<StreamSubscription<Object?>>.of(_listeners);
+    _listeners.clear();
+    for (final sub in subs) {
+      await sub.cancel();
     }
   }
 

@@ -5,7 +5,7 @@ import 'package:finora/core/sync/sync_tables.dart';
 
 /// The single write path for synced data.
 ///
-/// Repositories call this instead of talking to Supabase directly: the local
+/// Repositories call this instead of talking to Firestore directly: the local
 /// box is updated immediately (so the UI stays instant and offline-capable),
 /// the mutation is queued durably, and a sync round is nudged. Nothing depends
 /// on the network call succeeding right now.

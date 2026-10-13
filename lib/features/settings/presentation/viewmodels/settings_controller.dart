@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive/hive.dart';
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/storage/app_database.dart';
+import 'package:finora/core/storage/sql_box.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/core/theme/app_colors.dart';
 
 /// A selectable brand accent. Drives the coloured top navigation bar so the
@@ -168,7 +169,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   /// shared chrome (the top bar), which can be built in contexts that never
   /// boot Hive — widget tests, error fallbacks — so a missing box degrades to
   /// in-memory defaults instead of throwing.
-  Box<dynamic>? _box;
+  SqlBox? _box;
 
   T _get<T>(String key, T fallback) {
     final value = _box?.get(key, defaultValue: fallback);
@@ -178,7 +179,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   @override
   AppSettings build() {
     try {
-      _box = Hive.box<dynamic>(HiveBoxes.settings);
+      _box = AppDatabase.box(StorageBoxes.settings);
     } catch (_) {
       _box = null;
     }

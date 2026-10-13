@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/sql_box.dart';
 import 'package:finora/features/budget/data/models/budget_model.dart';
 
 // ── Local ─────────────────────────────────────────────────────────────────────
@@ -12,7 +12,7 @@ abstract interface class BudgetLocalSource {
 class BudgetLocalSourceImpl implements BudgetLocalSource {
   BudgetLocalSourceImpl(this._box);
 
-  final Box<dynamic> _box;
+  final SqlBox _box;
 
   @override
   List<BudgetModel> readBudgets(int month, int year) {

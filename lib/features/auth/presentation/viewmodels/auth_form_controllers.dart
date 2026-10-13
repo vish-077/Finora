@@ -26,7 +26,7 @@ class LoginController extends _$LoginController {
     state = const AsyncLoading();
 
     // ── Dev test account bypass (debug builds only) ─────────────────────────
-    // Signs in instantly without Supabase / email verification.
+    // Signs in instantly without Firebase / email verification.
     if (AppConfig.isDevelopment &&
         email.trim().toLowerCase() == AppConstants.devTestEmail &&
         password == AppConstants.devTestPassword) {

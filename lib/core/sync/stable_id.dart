@@ -6,7 +6,7 @@ const Uuid _uuid = Uuid();
 /// the default cash wallet, …).
 ///
 /// Two things depend on this:
-///   * Postgres columns are `uuid` — a literal id like `default-food` is
+///   * Older schemas declared `uuid` columns — a literal id like `default-food` is
 ///     rejected outright, which silently kept seeded rows (and every expense
 ///     pointing at one) local to whichever device created them.
 ///   * Two devices that seed the same account while offline must produce the

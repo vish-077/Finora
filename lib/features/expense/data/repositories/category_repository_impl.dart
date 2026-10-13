@@ -22,7 +22,7 @@ class CategoryRepositoryImpl implements CategoryRepository {
         _currentUserId = currentUserId,
         _uuid = uuid ?? const Uuid();
 
-  /// Sentinel used by DI when there is no Supabase session.
+  /// Sentinel used by DI when there is no Firebase session.
   static const String _anonymousUser = 'local-user';
 
   final CategoryLocalSource _local;
@@ -41,7 +41,7 @@ class CategoryRepositoryImpl implements CategoryRepository {
 
       return right(list);
     } catch (e) {
-      return left(HiveReadFailure('Failed to read categories: $e'));
+      return left(StorageReadFailure('Failed to read categories: $e'));
     }
   }
 
@@ -95,7 +95,7 @@ class CategoryRepositoryImpl implements CategoryRepository {
       final stored = await _sync.save(SyncTables.categories, model.toCache());
       return right(CategoryModel.fromMap(stored));
     } catch (e) {
-      return left(HiveWriteFailure('Failed to $verb category: $e'));
+      return left(StorageWriteFailure('Failed to $verb category: $e'));
     }
   }
 
@@ -105,7 +105,7 @@ class CategoryRepositoryImpl implements CategoryRepository {
       await _sync.remove(SyncTables.categories, id);
       return right(unit);
     } catch (e) {
-      return left(HiveWriteFailure('Failed to delete category: $e'));
+      return left(StorageWriteFailure('Failed to delete category: $e'));
     }
   }
 }

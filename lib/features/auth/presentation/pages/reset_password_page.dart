@@ -10,8 +10,8 @@ import 'package:finora/features/auth/presentation/widgets/auth_text_field.dart';
 import 'package:finora/features/auth/presentation/widgets/password_strength_bar.dart';
 import 'package:finora/shared/widgets/finora_button.dart';
 
-/// Reached via the password-recovery deep link (Supabase sets a temporary
-/// recovery session), then the user chooses a new password here.
+/// Lets a signed-in user choose a new password. (Forgotten-password emails
+/// are completed on Firebase's hosted reset page, not in the app.)
 class ResetPasswordPage extends ConsumerStatefulWidget {
   const ResetPasswordPage({super.key});
 

@@ -25,8 +25,6 @@ class AppConfig {
   static String get appName => _raw('APP_NAME') ?? 'FINORA';
   static String get appVersion => _raw('APP_VERSION') ?? '1.0.0';
 
-  static String get supabaseUrl => _raw('SUPABASE_URL') ?? '';
-  static String get supabaseAnonKey => _raw('SUPABASE_ANON_KEY') ?? '';
 
   static String get geminiApiBaseUrl =>
       _raw('GEMINI_API_BASE_URL') ??

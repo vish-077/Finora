@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/sql_box.dart';
 import 'package:finora/core/sync/stable_id.dart';
 import 'package:finora/features/wallet/data/models/account_model.dart';
 import 'package:finora/features/wallet/domain/entities/account_type.dart';
@@ -32,7 +32,7 @@ abstract interface class AccountLocalSource {
 class AccountLocalSourceImpl implements AccountLocalSource {
   AccountLocalSourceImpl(this._box);
 
-  final Box<dynamic> _box;
+  final SqlBox _box;
 
   @override
   List<AccountModel> readAll() {

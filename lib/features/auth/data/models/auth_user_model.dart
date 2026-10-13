@@ -1,7 +1,7 @@
-import 'package:supabase_flutter/supabase_flutter.dart' show User;
+import 'package:firebase_auth/firebase_auth.dart' show User;
 import 'package:finora/features/auth/domain/entities/auth_user.dart';
 
-/// Data-layer model. Maps between Supabase [User], Hive cache JSON, and the
+/// Data-layer model. Maps between Firebase [User], cached JSON, and the
 /// domain [AuthUser] entity.
 class AuthUserModel extends AuthUser {
   const AuthUserModel({
@@ -13,13 +13,13 @@ class AuthUserModel extends AuthUser {
     super.createdAt,
   });
 
-  factory AuthUserModel.fromSupabase(User user) => AuthUserModel(
-        id: user.id,
+  factory AuthUserModel.fromFirebase(User user) => AuthUserModel(
+        id: user.uid,
         email: user.email ?? '',
-        displayName: user.userMetadata?['display_name'] as String?,
-        avatarUrl: user.userMetadata?['avatar_url'] as String?,
-        isEmailVerified: user.emailConfirmedAt != null,
-        createdAt: DateTime.tryParse(user.createdAt),
+        displayName: user.displayName,
+        avatarUrl: user.photoURL,
+        isEmailVerified: user.emailVerified,
+        createdAt: user.metadata.creationTime,
       );
 
   factory AuthUserModel.fromCache(Map<String, dynamic> json) => AuthUserModel(

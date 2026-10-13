@@ -10,7 +10,7 @@ class AppConstants {
   static const String gmailDomain = '@gmail.com';
 
   // ── Dev test account (DEBUG BUILDS ONLY) ───────────────────────────────────
-  // Lets you launch the app without Supabase email verification. The bypass in
+  // Lets you launch the app without a Firebase account. The bypass in
   // LoginController is guarded by AppConfig.isDevelopment, so it is completely
   // inert in release builds.
   static const String devTestEmail = 'finora.test@gmail.com';

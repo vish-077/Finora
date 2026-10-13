@@ -4,7 +4,7 @@ import 'package:finora/features/expense/domain/entities/expense.dart';
 import 'package:finora/features/expense/domain/entities/expense_filter.dart';
 
 abstract interface class ExpenseRepository {
-  /// Offline-first: returns cached data immediately, refreshing from Supabase
+  /// Offline-first: returns cached data immediately, refreshing from Firestore
   /// in the background when online.
   Future<Either<Failure, List<Expense>>> getExpenses({ExpenseFilter? filter});
 

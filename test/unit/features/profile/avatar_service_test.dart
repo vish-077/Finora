@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
 
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/features/profile/data/services/avatar_service.dart';
 
 void main() {
@@ -12,14 +12,14 @@ void main() {
 
   setUpAll(() {
     tempDir = Directory.systemTemp.createTempSync('finora_avatar_test');
-    Hive.init(tempDir.path);
+    AppDatabase.initInMemory();
   });
 
   setUp(() async {
-    if (!Hive.isBoxOpen(HiveBoxes.settings)) {
-      await Hive.openBox<dynamic>(HiveBoxes.settings);
+    if (!AppDatabase.isBoxOpen(StorageBoxes.settings)) {
+      await AppDatabase.openBox(StorageBoxes.settings);
     }
-    await Hive.box<dynamic>(HiveBoxes.settings).clear();
+    await AppDatabase.box(StorageBoxes.settings).clear();
     service = AvatarService();
   });
 
@@ -34,7 +34,7 @@ void main() {
   File _seedAvatar(String userId) {
     final file = File('${tempDir.path}/avatar_$userId.jpg')
       ..writeAsBytesSync([1, 2, 3]);
-    Hive.box<dynamic>(HiveBoxes.settings)
+    AppDatabase.box(StorageBoxes.settings)
         .put('avatar_path_$userId', file.path);
     return file;
   }
@@ -82,12 +82,12 @@ void main() {
     test('the legacy device-wide avatar is discarded, not inherited', () {
       final legacy = File('${tempDir.path}/legacy.jpg')
         ..writeAsBytesSync([9, 9, 9]);
-      Hive.box<dynamic>(HiveBoxes.settings).put('avatar_path', legacy.path);
+      AppDatabase.box(StorageBoxes.settings).put('avatar_path', legacy.path);
 
       // Whoever reads first must not inherit it.
       expect(service.currentAvatar('local-user'), isNull);
       expect(
-        Hive.box<dynamic>(HiveBoxes.settings).containsKey('avatar_path'),
+        AppDatabase.box(StorageBoxes.settings).containsKey('avatar_path'),
         isFalse,
       );
       expect(legacy.existsSync(), isFalse);
@@ -96,7 +96,7 @@ void main() {
     test('ids with filesystem-hostile characters are handled', () async {
       // Sanity-check the sanitiser used for filenames via the public API.
       const messyId = 'user/with:bad*chars';
-      final box = Hive.box<dynamic>(HiveBoxes.settings);
+      final box = AppDatabase.box(StorageBoxes.settings);
       final file = File('${tempDir.path}/ok.jpg')..writeAsBytesSync([1]);
       await box.put('avatar_path_$messyId', file.path);
 

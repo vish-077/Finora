@@ -1,4 +1,4 @@
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/sql_box.dart';
 
 import 'package:finora/core/logging/log_service.dart';
 import 'package:finora/core/sync/stable_id.dart';
@@ -8,7 +8,7 @@ import 'package:finora/core/sync/sync_tables.dart';
 
 /// One-time repair of data written before multi-device sync existed.
 ///
-/// Seeded rows used ids like `default-food`. Postgres declares those columns
+/// Seeded rows used ids like `default-food`. the original schema declared those columns
 /// `uuid`, so every write that touched one was rejected by the server and the
 /// row — plus every expense referencing it — stayed on the device that made
 /// it. This rewrites those ids to their deterministic UUID form, repoints the
@@ -16,7 +16,7 @@ import 'package:finora/core/sync/sync_tables.dart';
 /// existing data is adopted into the account instead of abandoned.
 class LegacyIdMigration {
   LegacyIdMigration({
-    required Box<dynamic> settingsBox,
+    required SqlBox settingsBox,
     required SyncLocalStore store,
     required SyncQueue queue,
   })  : _settings = settingsBox,
@@ -25,7 +25,7 @@ class LegacyIdMigration {
 
   static const String _flag = 'sync.legacy_ids_migrated_v1';
 
-  final Box<dynamic> _settings;
+  final SqlBox _settings;
   final SyncLocalStore _store;
   final SyncQueue _queue;
 
@@ -106,7 +106,7 @@ class LegacyIdMigration {
       for (final row in _store.readAll(table)) {
         final id = row['id'] as String?;
         if (id == null || !isUuid(id)) {
-          // Postgres would reject a non-uuid key outright; leave the row on
+          // A non-uuid key is not synced; leave the row on
           // the device rather than wedging the queue with it.
           skipped++;
           continue;

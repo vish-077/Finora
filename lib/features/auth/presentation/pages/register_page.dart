@@ -122,7 +122,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
                   onPressed: _submit,
                 ),
                 AppSpacing.vMd,
-                // Registration sends a Supabase confirmation email. Say so up
+                // Registration sends a confirmation email. Say so up
                 // front, including the sender limit, because the account cannot
                 // be signed into until that link is opened.
                 Container(

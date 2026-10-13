@@ -1,5 +1,4 @@
 import 'package:fpdart/fpdart.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show Session;
 import 'package:finora/core/error/exceptions.dart';
 import 'package:finora/core/error/failures.dart';
 import 'package:finora/core/logging/log_service.dart';
@@ -45,7 +44,7 @@ class AuthRepositoryImpl implements AuthRepository {
           await _sync?.handleSignIn(result.user.id);
           return _toSession(result.session, result.user);
         } catch (e) {
-          // If remote sign-in fails (e.g. Supabase email verification required or server rate limit),
+          // If remote sign-in fails (e.g. server rate limit or a transient outage),
           // check if this account was registered on this device!
           final registeredUser = _local.readRegisteredUser(sanitizedEmail);
           if (registeredUser != null) {
@@ -116,34 +115,22 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<Either<Failure, AuthSession?>> restoreSession() => _guard(() async {
-        // 1. Supabase auto-persists its own session across restarts.
-        final existing = _remote.currentSession;
-        if (existing != null) {
-          final user = AuthUserModel.fromSupabase(existing.user);
-          await _persist(existing, user);
-          await _sync?.handleSignIn(user.id);
-          return _toSession(existing, user);
+        // 1. Firebase restores its own session from disk on launch, even
+        //    offline.
+        final existing = await _remote.restoreSession();
+        final existingUser = _remote.currentUser;
+        if (existing != null && existingUser != null) {
+          await _persist(existing, existingUser);
+          await _sync?.handleSignIn(existingUser.id);
+          return _toSession(existing, existingUser);
         }
-        // 2. Fall back to our stored refresh token.
+
+        // 2. No live Firebase user: only a device that has signed in before
+        //    (marker stored at sign-in) may fall back to the cached profile.
         final refreshToken = await _local.readRefreshToken();
         if (refreshToken == null) return null;
 
-        // Try restoring using remote connection if online
-        if (await _network.isConnected) {
-          try {
-            final session = await _remote.restoreFromRefreshToken(refreshToken);
-            if (session != null) {
-              final user = AuthUserModel.fromSupabase(session.user);
-              await _persist(session, user);
-              await _sync?.handleSignIn(user.id);
-              return _toSession(session, user);
-            }
-          } catch (e) {
-            LogService.w('Remote session restore failed, falling back to local cache: $e');
-          }
-        }
-
-        // 3. If offline or remote restore fails, use local cached user if available
+        // 3. Use the locally cached user, if there is one.
         final cachedUser = _local.readCachedUser();
         if (cachedUser != null && cachedUser.id != 'local-user') {
           final accessToken = await _local.readAccessToken() ?? '';
@@ -207,7 +194,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  Future<void> _persist(Session session, AuthUserModel user) async {
+  Future<void> _persist(RemoteSession session, AuthUserModel user) async {
     await _local.saveSession(
       accessToken: session.accessToken,
       refreshToken: session.refreshToken ?? '',
@@ -215,13 +202,11 @@ class AuthRepositoryImpl implements AuthRepository {
     await _local.cacheUser(user);
   }
 
-  AuthSession _toSession(Session session, AuthUserModel user) => AuthSession(
+  AuthSession _toSession(RemoteSession session, AuthUserModel user) => AuthSession(
         accessToken: session.accessToken,
         refreshToken: session.refreshToken ?? '',
         user: user,
-        expiresAt: session.expiresAt == null
-            ? null
-            : DateTime.fromMillisecondsSinceEpoch(session.expiresAt! * 1000),
+        expiresAt: session.expiresAt,
       );
 
   /// Runs [action], converting thrown [AppException]s into typed [Failure]s.
@@ -229,7 +214,7 @@ class AuthRepositoryImpl implements AuthRepository {
     try {
       return right(await action());
     } on NetworkException catch (e) {
-      if (e.code == 'SUPABASE_NOT_CONFIGURED') {
+      if (e.code == 'FIREBASE_NOT_CONFIGURED') {
         return left(ServerFailure(e.message, code: e.code));
       }
       return left(const NoInternetFailure());
@@ -243,6 +228,8 @@ class AuthRepositoryImpl implements AuthRepository {
     }
   }
 
+  /// Firebase error codes arrive normalised to underscores
+  /// (`wrong-password` → `wrong_password`).
   Failure _mapAuthError(AuthException e) {
     final code = (e.code ?? '').toLowerCase();
     final msg = e.message.toLowerCase();
@@ -250,9 +237,8 @@ class AuthRepositoryImpl implements AuthRepository {
     final transport = mapAuthTransportErrorForTest(e.message, e.code);
     if (transport != null) return transport;
 
-    // Checked BEFORE the invalid-credentials branch: Supabase's
-    // `email_not_confirmed` used to be shadowed by the generic `invalid` match,
-    // so a correct password on an unconfirmed account read as a wrong password.
+    if (code == 'network_request_failed') return const NoInternetFailure();
+
     if (code.contains('email_not_confirmed') ||
         code.contains('not_confirmed') ||
         msg.contains('not confirmed') ||
@@ -264,19 +250,40 @@ class AuthRepositoryImpl implements AuthRepository {
       );
     }
 
-    // Supabase's email sender is limited (a couple of messages per hour on the
-    // default SMTP), so this is expected during testing and worth naming.
-    if (code.contains('over_email_send_rate_limit') ||
-        code.contains('email_send_rate') ||
-        msg.contains('email rate limit')) {
+    if (code == 'too_many_requests' ||
+        code.contains('rate') ||
+        msg.contains('rate limit') ||
+        msg.contains('too many')) {
       return const AuthFailure(
-        'Email limit reached — Supabase only sends a couple of verification '
-        'emails per hour. Wait a while, or use the link already in your inbox.',
-        code: 'EMAIL_RATE_LIMIT',
+        'Too many attempts. Please try again later.',
+        code: 'RATE_LIMIT',
       );
     }
 
-    if (code.contains('invalid') || msg.contains('invalid login')) {
+    if (code == 'operation_not_allowed') {
+      return const AuthFailure(
+        'Email/password sign-in is not enabled for this Firebase project. '
+        'Enable it under Authentication → Sign-in method in the Firebase '
+        'console.',
+        code: 'PROVIDER_DISABLED',
+      );
+    }
+
+    if (code == 'user_disabled') {
+      return const AuthFailure(
+        'This account has been disabled.',
+        code: 'USER_DISABLED',
+      );
+    }
+
+    if (code == 'requires_recent_login') {
+      return const SessionExpiredFailure();
+    }
+
+    if (code.contains('invalid') ||
+        code == 'wrong_password' ||
+        code == 'user_not_found' ||
+        msg.contains('invalid login')) {
       return const InvalidCredentialsFailure();
     }
     if (code.contains('already') || msg.contains('already registered')) {
@@ -291,12 +298,6 @@ class AuthRepositoryImpl implements AuthRepository {
         field: 'password',
       );
     }
-    if (code.contains('rate') || msg.contains('rate limit')) {
-      return const AuthFailure(
-        'Too many attempts. Please try again later.',
-        code: 'RATE_LIMIT',
-      );
-    }
     return AuthFailure(e.message, code: e.code);
   }
 }
@@ -304,8 +305,8 @@ class AuthRepositoryImpl implements AuthRepository {
 /// Maps a transport-level auth error to a user-facing [Failure], or null when
 /// the error is a genuine auth problem that should fall through.
 ///
-/// Supabase wraps connectivity failures (DNS, refused, reset) inside its own
-/// `AuthException`, so without this the raw
+/// Connectivity failures (DNS, refused, reset) can arrive wrapped inside an
+/// auth exception, so without this the raw
 /// `ClientException with SocketException: Failed host lookup ...` string was
 /// rendered verbatim on the sign-up screen.
 ///
@@ -321,6 +322,7 @@ Failure? mapAuthTransportErrorForTest(String message, String? code) {
       msg.contains('connection reset') ||
       msg.contains('connection closed') ||
       msg.contains('network is unreachable') ||
+      msg.contains('network error') ||
       c.contains('retryable');
 
   if (looksTransport) {

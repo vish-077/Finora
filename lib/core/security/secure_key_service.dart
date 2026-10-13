@@ -1,7 +1,4 @@
-import 'dart:convert';
-import 'dart:math';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:finora/core/logging/log_service.dart';
 
 class SecureKeyService {
   SecureKeyService._();
@@ -14,7 +11,6 @@ class SecureKeyService {
     ),
   );
 
-  static const String _hiveKeyId = 'finora_hive_aes_key';
   static const String _sessionTokenKey = 'finora_session_token';
   static const String _refreshTokenKey = 'finora_refresh_token';
   static const String _biometricEnabledKey = 'finora_biometric_enabled';
@@ -22,17 +18,6 @@ class SecureKeyService {
   static const String _aiApiKeyId = 'finora_ai_api_key';
   static const String _pinLockoutKey = 'finora_pin_lockout';
   static const String _pinAttemptsKey = 'finora_pin_attempts';
-
-  // ── Hive Encryption Key (AES-256, 32 bytes) ───────────────────────────────
-  static Future<List<int>> getOrCreateHiveKey() async {
-    final existing = await _storage.read(key: _hiveKeyId);
-    if (existing != null) return base64Decode(existing);
-
-    final key = List<int>.generate(32, (_) => Random.secure().nextInt(256));
-    await _storage.write(key: _hiveKeyId, value: base64Encode(key));
-    LogService.d('New Hive AES-256 key created and stored in Keystore');
-    return key;
-  }
 
   // ── Session Token ─────────────────────────────────────────────────────────
   static Future<void> saveSessionToken(String token) =>

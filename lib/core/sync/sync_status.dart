@@ -1,5 +1,5 @@
 enum SyncState {
-  /// No Supabase session — the app is running purely local.
+  /// No signed-in Firebase user — the app is running purely local.
   signedOut,
 
   /// No network. Writes are queued and will go out on reconnect.

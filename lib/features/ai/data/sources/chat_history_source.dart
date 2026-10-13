@@ -1,21 +1,22 @@
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
+import 'package:finora/core/storage/sql_box.dart';
 
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/core/logging/log_service.dart';
 import 'package:finora/features/ai/domain/entities/chat_entities.dart';
 
 /// Local, per-user chat history.
 ///
-/// Threads live in the `aiHistory` Hive box keyed by conversation id and are
+/// Threads live in the `aiHistory` box keyed by conversation id and are
 /// deliberately *not* wiped on sign-out, so a user who logs back in still has
 /// their conversations. Filtering by `userId` keeps one account's threads out
 /// of another's list on a shared device.
 class ChatHistorySource {
   static const String _prefix = 'chat_';
 
-  Box<dynamic>? get _box {
+  SqlBox? get _box {
     try {
-      return Hive.box<dynamic>(HiveBoxes.aiHistory);
+      return AppDatabase.box(StorageBoxes.aiHistory);
     } catch (_) {
       // Box not open (widget tests, early boot) — behave as empty history.
       return null;
@@ -29,7 +30,7 @@ class ChatHistorySource {
 
     final result = <ChatConversation>[];
     for (final key in box.keys) {
-      if (key is! String || !key.startsWith(_prefix)) continue;
+      if (!key.startsWith(_prefix)) continue;
       final raw = box.get(key);
       if (raw is! Map) continue;
       try {

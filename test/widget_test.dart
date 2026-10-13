@@ -1,7 +1,7 @@
 // FINORA smoke test — verifies the app boots and renders the initial route.
 //
 // Note: the full app (FINORAApp) depends on runtime initialization
-// (dotenv, Hive, Supabase, GetIt) done in main._bootstrap(). Testing that
+// (dotenv, SQLite, Firebase, GetIt) done in main._bootstrap(). Testing that
 // requires integration-level setup, so this smoke test validates the theme
 // and a minimal MaterialApp render instead. Feature widget tests live under
 // test/unit and test/widget per feature.

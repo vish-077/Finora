@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/sql_box.dart';
 import 'package:finora/features/expense/data/models/expense_model.dart';
 
 /// Hive-backed cache for offline-first reads/writes. Each expense is stored as
@@ -15,7 +15,7 @@ abstract interface class ExpenseLocalSource {
 class ExpenseLocalSourceImpl implements ExpenseLocalSource {
   ExpenseLocalSourceImpl(this._box);
 
-  final Box<dynamic> _box;
+  final SqlBox _box;
 
   @override
   List<ExpenseModel> readAll() {

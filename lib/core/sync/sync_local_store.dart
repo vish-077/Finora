@@ -1,15 +1,16 @@
 import 'dart:convert';
 
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
+import 'package:finora/core/storage/sql_box.dart';
 
 import 'package:finora/core/sync/sync_tables.dart';
 
-/// Raw JSON access to the mirrored Hive boxes.
+/// Raw JSON access to the mirrored SQLite boxes.
 ///
 /// Feature code keeps using its typed local sources for reads; the sync engine
 /// works at the map level so one implementation covers every table.
 class SyncLocalStore {
-  Box<dynamic> box(SyncTable table) => Hive.box<dynamic>(table.box);
+  SqlBox box(SyncTable table) => AppDatabase.box(table.box);
 
   Map<String, dynamic>? read(SyncTable table, String id) =>
       _decode(box(table).get(id));

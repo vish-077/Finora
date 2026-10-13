@@ -1,12 +1,12 @@
-import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
 
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/core/network/network_info.dart';
 import 'package:finora/core/sync/sync_cursor_store.dart';
 import 'package:finora/core/sync/sync_engine.dart';
@@ -26,63 +26,13 @@ import 'package:finora/features/wallet/data/repositories/account_repository_impl
 import 'package:finora/features/wallet/data/sources/account_sources.dart';
 import 'package:finora/shared/enums/transaction_type.dart';
 
-// ── In-Memory Cloud Database (Simulating Supabase PostgreSQL + RLS) ─────────
+// ── Fake Firebase Auth ──────────────────────────────────────────────────────
+// Firestore is simulated by FakeFirebaseFirestore (one instance shared by every
+// "device"); auth only needs to report which uid is signed in.
 
-class CloudDatabase {
-  final Map<String, List<Map<String, dynamic>>> tables = {};
+class MockFirebaseAuth extends Mock implements FirebaseAuth {}
 
-  List<Map<String, dynamic>> getTable(String name) =>
-      tables.putIfAbsent(name, () => []);
-
-  Map<String, dynamic> upsert(String tableName, Map<String, dynamic> payload) {
-    final list = getTable(tableName);
-    final id = payload['id'] as String;
-    final nowIso = DateTime.now().toUtc().toIso8601String();
-
-    final row = Map<String, dynamic>.from(payload);
-    row['created_at'] ??= nowIso;
-    row['updated_at'] = nowIso;
-
-    final idx = list.indexWhere((r) => r['id'] == id);
-    if (idx >= 0) {
-      list[idx] = row;
-    } else {
-      list.add(row);
-    }
-    return row;
-  }
-
-  List<Map<String, dynamic>> select({
-    required String tableName,
-    required String userId,
-    String? gtUpdatedAt,
-  }) {
-    final list = getTable(tableName);
-    return list.where((row) {
-      if (row['user_id'] != userId) return false;
-      if (gtUpdatedAt != null) {
-        final rowUpdated = DateTime.tryParse('${row['updated_at']}');
-        final filterUpdated = DateTime.tryParse(gtUpdatedAt);
-        if (rowUpdated != null && filterUpdated != null) {
-          if (!rowUpdated.isAfter(filterUpdated)) return false;
-        }
-      }
-      return true;
-    }).map((r) => Map<String, dynamic>.from(r)).toList();
-  }
-}
-
-// ── Mock Supabase Classes ───────────────────────────────────────────────────
-
-class MockSupabaseClient extends Mock implements SupabaseClient {}
-class MockGoTrueClient extends Mock implements GoTrueClient {}
-class MockUser extends Mock implements User {}
-class MockRealtimeChannel extends Mock implements RealtimeChannel {}
-class MockSupabaseQueryBuilder extends Mock implements SupabaseQueryBuilder {}
-class MockFilterBuilder extends Mock implements PostgrestFilterBuilder<PostgrestList> {}
-class MockSingleTransformBuilder extends Mock implements PostgrestTransformBuilder<Map<String, dynamic>?> {}
-class MockListTransformBuilder extends Mock implements PostgrestTransformBuilder<List<Map<String, dynamic>>> {}
-class FakeRealtimeChannel extends Fake implements RealtimeChannel {}
+class MockFirebaseUser extends Mock implements User {}
 
 class FakeNetworkInfo implements NetworkInfo {
   @override
@@ -92,137 +42,54 @@ class FakeNetworkInfo implements NetworkInfo {
   Stream<bool> get onConnectivityChanged => Stream.value(true);
 }
 
+
 void main() {
-  late Directory rootDir;
-  late CloudDatabase cloudDb;
+  late FakeFirebaseFirestore cloud;
 
-  setUpAll(() {
-    registerFallbackValue(Uri());
-    registerFallbackValue(FakeRealtimeChannel());
-    registerFallbackValue(PostgresChangeEvent.all);
+  setUp(() {
+    cloud = FakeFirebaseFirestore();
   });
 
-  setUp(() async {
-    rootDir = await Directory.systemTemp.createTemp('finora_cross_device');
-    cloudDb = CloudDatabase();
-  });
-
-  tearDown(() async {
-    if (rootDir.existsSync()) await rootDir.delete(recursive: true);
-  });
+  Future<List<Map<String, dynamic>>> cloudRows(String uid, String table) async {
+    final snap = await cloud
+        .collection(SyncTables.userRoot)
+        .doc(uid)
+        .collection(table)
+        .get();
+    return [for (final d in snap.docs) d.data()];
+  }
 
   Future<(SyncEngine, SyncLocalStore, SyncQueue, SyncScopeStore, ExpenseRepositoryImpl, CategoryRepositoryImpl, void Function(String))> setupDevice({
-    required Directory tempDir,
     required String activeUserId,
-    required CloudDatabase cloud,
   }) async {
-    Hive.init(tempDir.path);
+    AppDatabase.initInMemory();
     for (final table in SyncTables.all) {
-      await Hive.openBox<dynamic>(table.box);
+      await AppDatabase.openBox(table.box);
     }
-    await Hive.openBox<dynamic>(HiveBoxes.syncQueue);
-    await Hive.openBox<dynamic>(HiveBoxes.syncScope);
-    await Hive.openBox<dynamic>(HiveBoxes.settings);
+    await AppDatabase.openBox(StorageBoxes.syncQueue);
+    await AppDatabase.openBox(StorageBoxes.syncScope);
+    await AppDatabase.openBox(StorageBoxes.settings);
 
     final store = SyncLocalStore();
-    final queue = SyncQueue(Hive.box<dynamic>(HiveBoxes.syncQueue));
+    final queue = SyncQueue(AppDatabase.box(StorageBoxes.syncQueue));
     final scopes = SyncScopeStore(
-      box: Hive.box<dynamic>(HiveBoxes.syncScope),
+      box: AppDatabase.box(StorageBoxes.syncScope),
       store: store,
       queue: queue,
     );
-    final cursors = SyncCursorStore(Hive.box<dynamic>(HiveBoxes.settings));
+    final cursors = SyncCursorStore(AppDatabase.box(StorageBoxes.settings));
 
-    final client = MockSupabaseClient();
-    final auth = MockGoTrueClient();
     var currentUid = activeUserId;
-    final user = MockUser();
-
-    when(() => user.id).thenAnswer((_) => currentUid);
-    when(() => auth.currentUser).thenAnswer((_) => currentUid == SyncScope.guest ? null : user);
-    when(() => auth.onAuthStateChange)
-        .thenAnswer((_) => Stream.value(AuthState(AuthChangeEvent.signedIn, null)));
-    when(() => client.auth).thenReturn(auth);
-
-    final channel = MockRealtimeChannel();
-    when(() => channel.onPostgresChanges(
-          event: any(named: 'event'),
-          schema: any(named: 'schema'),
-          table: any(named: 'table'),
-          filter: any(named: 'filter'),
-          callback: any(named: 'callback'),
-        )).thenReturn(channel);
-    when(() => channel.subscribe(any(), any())).thenReturn(channel);
-
-    when(() => client.channel(any())).thenReturn(channel);
-    when(() => client.removeChannel(any())).thenAnswer((_) async => 'ok');
-
-    // Pre-wire query builders per table
-    for (final syncTable in SyncTables.all) {
-      final tableName = syncTable.remote;
-      final qb = MockSupabaseQueryBuilder();
-      when(() => client.from(tableName)).thenAnswer((_) => qb);
-
-      // --- UPSERT STREAM ---
-      final upsertFilter = MockFilterBuilder();
-      final upsertSingle = MockSingleTransformBuilder();
-
-      when(() => qb.upsert(any())).thenAnswer((inv) {
-        final payload = Map<String, dynamic>.from(inv.positionalArguments[0] as Map);
-        final updatedRow = cloud.upsert(tableName, payload);
-
-        when(() => upsertSingle.then<dynamic>(any(), onError: any(named: 'onError')))
-            .thenAnswer((invThen) {
-          final fn = invThen.positionalArguments[0] as Function;
-          return Future.value(fn(updatedRow));
-        });
-
-        return upsertFilter;
-      });
-
-      when(() => upsertFilter.select(any())).thenAnswer((_) => upsertFilter);
-      when(() => upsertFilter.maybeSingle()).thenAnswer((_) => upsertSingle);
-
-      // --- SELECT / PULL STREAM ---
-      final selectFilter = MockFilterBuilder();
-      when(() => qb.select(any())).thenAnswer((_) => selectFilter);
-
-      final userFilter = MockFilterBuilder();
-      final gtFilter = MockFilterBuilder();
-      final listTransformGt = MockListTransformBuilder();
-      final listTransformDirect = MockListTransformBuilder();
-
-      when(() => selectFilter.eq('user_id', any())).thenAnswer((invEq) {
-        final uId = invEq.positionalArguments[1] as String;
-
-        when(() => userFilter.gt('updated_at', any())).thenAnswer((invGt) {
-          final gtVal = invGt.positionalArguments[1] as String;
-
-          when(() => gtFilter.order('updated_at', ascending: any(named: 'ascending'))).thenAnswer((_) => listTransformGt);
-          when(() => listTransformGt.limit(any())).thenAnswer((_) => listTransformGt);
-          when(() => listTransformGt.then<dynamic>(any(), onError: any(named: 'onError'))).thenAnswer((invThen) {
-            final fn = invThen.positionalArguments[0] as Function;
-            final list = cloud.select(tableName: tableName, userId: uId, gtUpdatedAt: gtVal);
-            return Future.value(fn(list));
-          });
-
-          return gtFilter;
-        });
-
-        when(() => userFilter.order('updated_at', ascending: any(named: 'ascending'))).thenAnswer((_) => listTransformDirect);
-        when(() => listTransformDirect.limit(any())).thenAnswer((_) => listTransformDirect);
-        when(() => listTransformDirect.then<dynamic>(any(), onError: any(named: 'onError'))).thenAnswer((invThen) {
-          final fn = invThen.positionalArguments[0] as Function;
-          final list = cloud.select(tableName: tableName, userId: uId);
-          return Future.value(fn(list));
-        });
-
-        return userFilter;
-      });
-    }
+    final user = MockFirebaseUser();
+    final auth = MockFirebaseAuth();
+    when(() => user.uid).thenAnswer((_) => currentUid);
+    when(() => auth.currentUser)
+        .thenAnswer((_) => currentUid == SyncScope.guest ? null : user);
+    when(auth.authStateChanges).thenAnswer((_) => const Stream<User?>.empty());
 
     final engine = SyncEngine(
-      client: client,
+      auth: auth,
+      firestore: cloud,
       queue: queue,
       store: store,
       cursors: cursors,
@@ -236,8 +103,8 @@ void main() {
       engine: engine,
     );
 
-    final expenseLocal = ExpenseLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.transactions));
-    final categoryLocal = CategoryLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.categories));
+    final expenseLocal = ExpenseLocalSourceImpl(AppDatabase.box(StorageBoxes.transactions));
+    final categoryLocal = CategoryLocalSourceImpl(AppDatabase.box(StorageBoxes.categories));
 
     final categoryRepo = CategoryRepositoryImpl(
       local: categoryLocal,
@@ -259,137 +126,88 @@ void main() {
     return (engine, store, queue, scopes, expenseRepo, categoryRepo, setCurrentUser);
   }
 
+  Expense expense(String id, String user, String title, double amount, String categoryId, PaymentMethod method) =>
+      Expense(
+        id: id,
+        userId: user,
+        title: title,
+        amount: amount,
+        categoryId: categoryId,
+        paymentMethod: method,
+        transactionType: TransactionType.expense,
+        transactionDate: DateTime.now(),
+      );
+
   test('cross-device cloud synchronization & fresh installation verification', () async {
     const accountA = 'user-account-A-uuid';
     const accountB = 'user-account-B-uuid';
 
-    // ── STEP 1: Device A (Account A registers/logs in and creates expenses) ──
-    final dirA = Directory('${rootDir.path}/device_A')..createSync();
-
-    final (engineA, storeA, queueA, scopesA, expenseRepoA, categoryRepoA, setUidA) = await setupDevice(
-      tempDir: dirA,
-      activeUserId: accountA,
-      cloud: cloudDb,
-    );
+    // -- STEP 1: Device A (Account A signs in and creates expenses) ----------
+    final (engineA, _, _, scopesA, expenseRepoA, categoryRepoA, _) =
+        await setupDevice(activeUserId: accountA);
 
     await scopesA.switchTo(accountA);
     await engineA.handleSignIn(accountA);
 
-    // Seed categories for Account A
     final catsResultA = await categoryRepoA.getCategories();
     final catIdA = catsResultA.getOrElse((_) => []).first.id;
 
-    // Add 3 expenses on Device A: ₹500 Food, ₹200 Travel, ₹1000 Shopping
-    final exp1 = Expense(
-      id: 'exp-111',
-      userId: accountA,
-      title: 'Food',
-      amount: 500.0,
-      categoryId: catIdA,
-      paymentMethod: PaymentMethod.cash,
-      transactionType: TransactionType.expense,
-      transactionDate: DateTime.now(),
-    );
-    final exp2 = Expense(
-      id: 'exp-222',
-      userId: accountA,
-      title: 'Travel',
-      amount: 200.0,
-      categoryId: catIdA,
-      paymentMethod: PaymentMethod.cash,
-      transactionType: TransactionType.expense,
-      transactionDate: DateTime.now(),
-    );
-    final exp3 = Expense(
-      id: 'exp-333',
-      userId: accountA,
-      title: 'Shopping',
-      amount: 1000.0,
-      categoryId: catIdA,
-      paymentMethod: PaymentMethod.debitCard,
-      transactionType: TransactionType.expense,
-      transactionDate: DateTime.now(),
-    );
+    await expenseRepoA.addExpense(
+        expense('exp-111', accountA, 'Food', 500, catIdA, PaymentMethod.cash));
+    await expenseRepoA.addExpense(
+        expense('exp-222', accountA, 'Travel', 200, catIdA, PaymentMethod.cash));
+    await expenseRepoA.addExpense(expense(
+        'exp-333', accountA, 'Shopping', 1000, catIdA, PaymentMethod.debitCard));
 
-    await expenseRepoA.addExpense(exp1);
-    await expenseRepoA.addExpense(exp2);
-    await expenseRepoA.addExpense(exp3);
-
-    // Push changes from Device A to Supabase cloud
     await engineA.syncNow(reason: 'device_A_push');
 
-    // Confirm that ₹500, ₹200, ₹1000 are uploaded to Supabase PostgreSQL table with user_id = accountA
-    final cloudRows = cloudDb.getTable('expenses').where((r) => r['user_id'] == accountA).toList();
-    expect(cloudRows.length, 3, reason: 'Device A expenses must be uploaded to Supabase cloud table');
-    expect(cloudRows.map((r) => r['title']), containsAll(['Food', 'Travel', 'Shopping']));
-    expect(cloudRows.every((r) => r['user_id'] == accountA), isTrue);
+    final rowsA = await cloudRows(accountA, 'expenses');
+    expect(rowsA.length, 3, reason: 'Device A expenses must be uploaded to Firestore');
+    expect(rowsA.map((r) => r['title']), containsAll(['Food', 'Travel', 'Shopping']));
+    expect(rowsA.every((r) => r['user_id'] == accountA), isTrue);
+    expect(rowsA.every((r) => r['updated_at'] is Timestamp), isTrue,
+        reason: 'updated_at must be stamped by the server');
 
-    await Hive.close();
+    // -- STEP 2: Device B (fresh install - empty local storage) --------------
+    final (engineB, _, _, scopesB, expenseRepoB, _, setUidB) =
+        await setupDevice(activeUserId: SyncScope.guest);
 
-    // ── STEP 2: Device B (Fresh Installation - clean empty Hive) ────────────
-    final dirB = Directory('${rootDir.path}/device_B')..createSync();
-
-    final (engineB, storeB, queueB, scopesB, expenseRepoB, categoryRepoB, setUidB) = await setupDevice(
-      tempDir: dirB,
-      activeUserId: SyncScope.guest,
-      cloud: cloudDb,
-    );
-
-    // Verify Device B starts with empty Hive local storage
     final initialB = await expenseRepoB.getExpenses();
-    expect(initialB.getOrElse((_) => []), isEmpty, reason: 'Device B Hive must initially be empty');
+    expect(initialB.getOrElse((_) => []), isEmpty,
+        reason: 'Device B local storage must initially be empty');
 
-    // Login with Account A on Device B
     setUidB(accountA);
     await scopesB.switchTo(accountA);
     await engineB.handleSignIn(accountA);
     await engineB.syncNow(reason: 'device_B_pull');
 
-    // Verify that Device B downloads Account A's expenses from Supabase
-    final downloadedB = await expenseRepoB.getExpenses();
-    final listB = downloadedB.getOrElse((_) => []);
-    expect(listB.length, 3, reason: 'Device B must download all 3 expenses from Supabase');
+    final listB = (await expenseRepoB.getExpenses()).getOrElse((_) => []);
+    expect(listB.length, 3, reason: 'Device B must download all 3 expenses from Firestore');
     expect(listB.map((e) => e.title), containsAll(['Food', 'Travel', 'Shopping']));
     expect(listB.map((e) => e.amount), containsAll([500.0, 200.0, 1000.0]));
 
-    // ── STEP 3: Add new expense on Device B & sync back to Device A ─────────
-    final exp4 = Expense(
-      id: 'exp-444',
-      userId: accountA,
-      title: 'Books',
-      amount: 300.0,
-      categoryId: catIdA,
-      paymentMethod: PaymentMethod.upi,
-      transactionType: TransactionType.expense,
-      transactionDate: DateTime.now(),
-    );
-    await expenseRepoB.addExpense(exp4);
+    // -- STEP 3: Add an expense on Device B & push it ------------------------
+    await expenseRepoB.addExpense(
+        expense('exp-444', accountA, 'Books', 300, catIdA, PaymentMethod.upi));
     await engineB.syncNow(reason: 'device_B_push');
 
-    // Verify ₹300 Books expense is uploaded to Supabase with user_id = accountA
-    final cloudRowsAfterB = cloudDb.getTable('expenses').where((r) => r['user_id'] == accountA).toList();
-    expect(cloudRowsAfterB.length, 4, reason: 'Supabase must now hold 4 expenses for Account A');
-    expect(cloudRowsAfterB.map((r) => r['title']), contains('Books'));
+    final rowsAfterB = await cloudRows(accountA, 'expenses');
+    expect(rowsAfterB.length, 4, reason: 'Firestore must now hold 4 expenses for Account A');
+    expect(rowsAfterB.map((r) => r['title']), contains('Books'));
 
-    await Hive.close();
-
-    // ── STEP 4: Return to Device A & test Account Transitions/Isolation ────
-    final (engineA2, storeA2, queueA2, scopesA2, expenseRepoA2, categoryRepoA2, setUidA2) = await setupDevice(
-      tempDir: dirA,
-      activeUserId: accountA,
-      cloud: cloudDb,
-    );
+    // -- STEP 4: Back on Device A: pull, then account transitions ------------
+    final (engineA2, _, _, scopesA2, expenseRepoA2, categoryRepoA2, setUidA2) =
+        await setupDevice(activeUserId: accountA);
 
     await scopesA2.switchTo(accountA);
     await engineA2.handleSignIn(accountA);
     await engineA2.syncNow(reason: 'device_A_pull_updates');
 
-    // Confirm Device A now receives the ₹300 Books expense created on Device B
     final listA2 = (await expenseRepoA2.getExpenses()).getOrElse((_) => []);
-    expect(listA2.length, 4, reason: 'Device A must pull the ₹300 Books expense from Supabase');
+    expect(listA2.length, 4, reason: 'Device A must pull the Books expense from Firestore');
     expect(listA2.map((e) => e.title), contains('Books'));
 
-    // Test Logout -> Guest Mode
+    // Logout -> guest mode
     await engineA2.handleSignOut();
     setUidA2(SyncScope.guest);
     await scopesA2.switchTo(SyncScope.guest);
@@ -397,26 +215,15 @@ void main() {
     final guestList = (await expenseRepoA2.getExpenses()).getOrElse((_) => []);
     expect(guestList, isEmpty, reason: 'Guest mode must never see Account A expenses');
 
-    // Guest adds a local expense
     final guestCats = (await categoryRepoA2.getCategories()).getOrElse((_) => []);
-    final guestExp = Expense(
-      id: 'guest-exp-99',
-      userId: SyncScope.guest,
-      title: 'Guest Coffee',
-      amount: 50.0,
-      categoryId: guestCats.first.id,
-      paymentMethod: PaymentMethod.cash,
-      transactionType: TransactionType.expense,
-      transactionDate: DateTime.now(),
-    );
-    await expenseRepoA2.addExpense(guestExp);
+    await expenseRepoA2.addExpense(expense('guest-exp-99', SyncScope.guest,
+        'Guest Coffee', 50, guestCats.first.id, PaymentMethod.cash));
     await engineA2.syncNow(reason: 'guest_sync_attempt');
 
-    // Confirm Guest expense was NOT uploaded to Supabase
-    final cloudGuestRows = cloudDb.getTable('expenses').where((r) => r['user_id'] == SyncScope.guest).toList();
-    expect(cloudGuestRows, isEmpty, reason: 'Guest expenses must never be uploaded to cloud');
+    expect(await cloudRows(SyncScope.guest, 'expenses'), isEmpty,
+        reason: 'Guest expenses must never be uploaded to cloud');
 
-    // Test Login Account B
+    // Login as Account B
     setUidA2(accountB);
     await scopesA2.switchTo(accountB);
     await engineA2.handleSignIn(accountB);
@@ -424,7 +231,7 @@ void main() {
     final accountBList = (await expenseRepoA2.getExpenses()).getOrElse((_) => []);
     expect(accountBList, isEmpty, reason: 'Account B must not see Account A or Guest data');
 
-    // Test Login Account A again
+    // Login as Account A again
     setUidA2(accountA);
     await scopesA2.switchTo(accountA);
     await engineA2.handleSignIn(accountA);
@@ -433,6 +240,6 @@ void main() {
     expect(restoredList.length, 4, reason: 'Logging back into Account A restores all 4 cloud expenses');
     expect(restoredList.map((e) => e.title), containsAll(['Food', 'Travel', 'Shopping', 'Books']));
 
-    await Hive.close();
+    await AppDatabase.close();
   });
 }

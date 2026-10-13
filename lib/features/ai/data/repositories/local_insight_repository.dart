@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:fpdart/fpdart.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:finora/core/storage/sql_box.dart';
 import 'package:finora/core/error/failures.dart';
 import 'package:finora/features/ai/domain/entities/ai_entities.dart';
 import 'package:finora/features/ai/domain/repositories/insight_repository.dart';
@@ -15,8 +15,8 @@ class LocalInsightRepositoryImpl implements InsightRepository {
     required this.budgetBox,
   });
 
-  final Box<dynamic> transactionBox;
-  final Box<dynamic> budgetBox;
+  final SqlBox transactionBox;
+  final SqlBox budgetBox;
 
   @override
   Future<Either<Failure, FinancialHealth>> getFinancialHealth(String userId) async {
@@ -223,7 +223,7 @@ class LocalInsightRepositoryImpl implements InsightRepository {
 
   /// Boxes cache rows as JSON strings (see the feature local sources), so a
   /// raw `box.values` read yields nothing until they are decoded.
-  Iterable<Map<String, dynamic>> _rows(Box<dynamic> box) sync* {
+  Iterable<Map<String, dynamic>> _rows(SqlBox box) sync* {
     for (final value in box.values) {
       if (value is! String) continue;
       try {

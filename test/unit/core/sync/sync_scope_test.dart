@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
 
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/core/sync/sync_engine.dart';
 import 'package:finora/core/sync/sync_local_store.dart';
 import 'package:finora/core/sync/sync_queue.dart';
@@ -12,7 +12,7 @@ import 'package:finora/core/sync/sync_tables.dart';
 import 'package:finora/core/sync/sync_writer.dart';
 
 /// Stands in for the engine so the writer's upload gate can be exercised
-/// without a Supabase session.
+/// without a Firebase session.
 class _FakeEngine implements SyncEngine {
   _FakeEngine({required this.guest});
 
@@ -55,24 +55,24 @@ void main() {
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('finora_scope_test');
-    Hive.init(tempDir.path);
+    AppDatabase.initInMemory();
     for (final table in SyncTables.all) {
-      await Hive.openBox<dynamic>(table.box);
+      await AppDatabase.openBox(table.box);
     }
-    await Hive.openBox<dynamic>(HiveBoxes.syncQueue);
-    await Hive.openBox<dynamic>(HiveBoxes.syncScope);
+    await AppDatabase.openBox(StorageBoxes.syncQueue);
+    await AppDatabase.openBox(StorageBoxes.syncScope);
 
     store = SyncLocalStore();
-    queue = SyncQueue(Hive.box<dynamic>(HiveBoxes.syncQueue));
+    queue = SyncQueue(AppDatabase.box(StorageBoxes.syncQueue));
     scopes = SyncScopeStore(
-      box: Hive.box<dynamic>(HiveBoxes.syncScope),
+      box: AppDatabase.box(StorageBoxes.syncScope),
       store: store,
       queue: queue,
     );
   });
 
   tearDown(() async {
-    await Hive.deleteFromDisk();
+    await AppDatabase.deleteFromDisk();
     if (tempDir.existsSync()) await tempDir.delete(recursive: true);
   });
 
@@ -190,7 +190,7 @@ void main() {
       expect(amounts(), [500]);
     });
 
-    // Supabase replays an `initialSession` event just as startup calls
+    // Firebase replays the current user on subscribe just as startup calls
     // handleSignIn, so two swaps to the same owner can be in flight at once.
     test('concurrent switches to the same owner do not lose rows', () async {
       await scopes.switchTo(userA);

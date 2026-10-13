@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/app_database.dart';
 
-import 'package:finora/core/constants/hive_constants.dart';
+import 'package:finora/core/constants/storage_constants.dart';
 import 'package:finora/features/auth/data/sources/auth_local_source.dart';
 
 void main() {
@@ -11,36 +11,36 @@ void main() {
   late AuthLocalSourceImpl source;
 
   const dataBoxes = [
-    HiveBoxes.transactions,
-    HiveBoxes.categories,
-    HiveBoxes.budgets,
-    HiveBoxes.wallets,
-    HiveBoxes.goals,
+    StorageBoxes.transactions,
+    StorageBoxes.categories,
+    StorageBoxes.budgets,
+    StorageBoxes.wallets,
+    StorageBoxes.goals,
   ];
 
   const clearedBoxes = [
-    HiveBoxes.notifications,
-    HiveBoxes.receipts,
-    HiveBoxes.reports,
+    StorageBoxes.notifications,
+    StorageBoxes.receipts,
+    StorageBoxes.reports,
   ];
 
   setUpAll(() {
     tempDir = Directory.systemTemp.createTempSync('finora_signout_test');
-    Hive.init(tempDir.path);
+    AppDatabase.initInMemory();
   });
 
   setUp(() async {
     for (final name in [
       ...dataBoxes,
       ...clearedBoxes,
-      HiveBoxes.syncQueue,
-      HiveBoxes.aiHistory,
-      HiveBoxes.userProfile,
+      StorageBoxes.syncQueue,
+      StorageBoxes.aiHistory,
+      StorageBoxes.userProfile,
     ]) {
-      if (!Hive.isBoxOpen(name)) await Hive.openBox<dynamic>(name);
-      await Hive.box<dynamic>(name).put('seed', {'id': 'seed'});
+      if (!AppDatabase.isBoxOpen(name)) await AppDatabase.openBox(name);
+      await AppDatabase.box(name).put('seed', {'id': 'seed'});
     }
-    source = AuthLocalSourceImpl(Hive.box<dynamic>(HiveBoxes.userProfile));
+    source = AuthLocalSourceImpl(AppDatabase.box(StorageBoxes.userProfile));
   });
 
   tearDownAll(() {
@@ -59,7 +59,7 @@ void main() {
 
       for (final name in dataBoxes) {
         expect(
-          Hive.box<dynamic>(name).isNotEmpty,
+          AppDatabase.box(name).isNotEmpty,
           isTrue,
           reason: '$name must survive sign-out — SyncEngine owns its lifecycle',
         );
@@ -70,7 +70,7 @@ void main() {
       await source.clearAllUserData();
 
       expect(
-        Hive.box<dynamic>(HiveBoxes.syncQueue).isNotEmpty,
+        AppDatabase.box(StorageBoxes.syncQueue).isNotEmpty,
         isTrue,
         reason: 'unsent changes must upload on the next sign-in',
       );
@@ -78,7 +78,7 @@ void main() {
 
     test('leaves AI chat history intact', () async {
       await source.clearAllUserData();
-      expect(Hive.box<dynamic>(HiveBoxes.aiHistory).isNotEmpty, isTrue);
+      expect(AppDatabase.box(StorageBoxes.aiHistory).isNotEmpty, isTrue);
     });
 
     test('still clears device-local, re-derivable caches', () async {
@@ -86,7 +86,7 @@ void main() {
 
       for (final name in clearedBoxes) {
         expect(
-          Hive.box<dynamic>(name).isEmpty,
+          AppDatabase.box(name).isEmpty,
           isTrue,
           reason: '$name is device-local and should not linger',
         );

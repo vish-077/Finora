@@ -4,7 +4,7 @@ import 'package:finora/features/auth/domain/entities/auth_session.dart';
 import 'package:finora/features/auth/domain/entities/auth_user.dart';
 
 /// Contract for all authentication operations.
-/// Implemented in the data layer over Supabase Auth + secure local storage.
+/// Implemented in the data layer over Firebase Authentication + secure local storage.
 abstract interface class AuthRepository {
   /// Email/password sign-in. Persists the session securely on success.
   Future<Either<Failure, AuthSession>> signIn({
@@ -12,7 +12,7 @@ abstract interface class AuthRepository {
     required String password,
   });
 
-  /// Registers a new account. Supabase sends a verification email.
+  /// Registers a new account. Firebase sends a verification email.
   Future<Either<Failure, AuthUser>> signUp({
     required String email,
     required String password,

@@ -2,13 +2,13 @@
 -keep class io.flutter.** { *; }
 -keep class io.flutter.plugins.** { *; }
 
-# ── Hive ──────────────────────────────────────────────────────────────────────
--keep class com.hivedb.** { *; }
-
-# ── Supabase / OkHttp / Ktor ──────────────────────────────────────────────────
--keep class io.github.jan.supabase.** { *; }
--dontwarn io.ktor.**
--keep class io.ktor.** { *; }
+# ── Firebase (Auth / Firestore) ───────────────────────────────────────────────
+-keep class com.google.firebase.** { *; }
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.firebase.**
+-dontwarn com.google.android.gms.**
+-dontwarn okhttp3.**
+-dontwarn okio.**
 
 # ── ML Kit ────────────────────────────────────────────────────────────────────
 -keep class com.google.mlkit.** { *; }

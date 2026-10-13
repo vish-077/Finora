@@ -1,4 +1,4 @@
-import 'package:hive/hive.dart';
+import 'package:finora/core/storage/sql_box.dart';
 
 import 'package:finora/core/sync/sync_tables.dart';
 
@@ -8,7 +8,7 @@ import 'package:finora/core/sync/sync_tables.dart';
 class SyncCursorStore {
   SyncCursorStore(this._box);
 
-  final Box<dynamic> _box;
+  final SqlBox _box;
 
   static const String _lastUserKey = 'sync.last_user_id';
   static const String _lastSyncedKey = 'sync.last_synced_at';
